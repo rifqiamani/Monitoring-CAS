@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Monitoring CAS</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;font-family:'DM Sans',sans-serif;background:#f4f6f9;color:#1a1a2e}
+
+/* HEADER */
+header{
+  background:#fff;padding:0 20px;height:56px;
+  display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid #e8eaed;position:sticky;top:0;z-index:100;
+}
+.hdr-left{display:flex;align-items:center;gap:10px;}
+.back-btn{
+  width:32px;height:32px;display:grid;place-items:center;
+  color:#666;border-radius:8px;text-decoration:none;font-size:18px;
+}
+.back-btn:hover{background:#f4f6f9;}
+header h1{font-size:16px;font-weight:600;color:#111;}
+.status-dot{
+  width:8px;height:8px;border-radius:50%;background:#ccc;
+  transition:background .3s;
+}
+.status-dot.online{background:#4caf50;}
+.status-dot.connecting{background:#ff9800;animation:blink .7s step-end infinite;}
+@keyframes blink{50%{opacity:0}}
+.hdr-right{display:flex;align-items:center;gap:4px;}
+.conn-label{font-size:12px;color:#999;font-weight:500;}
+.icon-btn{
+  width:36px;height:36px;display:grid;place-items:center;
+  border-radius:8px;cursor:pointer;color:#666;font-size:18px;
+}
+.icon-btn:hover{background:#f4f6f9;}
+
+/* MAIN */
+main{padding:16px;max-width:900px;margin:0 auto;}
+
+/* CONFIG */
+.config-card{
+  background:#fff;border-radius:16px;padding:16px 18px;
+  margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.07);
+  display:none;
+}
+.config-card.open{display:block;}
+.config-card h3{font-size:12px;font-weight:600;color:#888;letter-spacing:.5px;margin-bottom:14px;}
+.cfg-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;
+}
+.cfg-group label{display:block;font-size:11px;color:#aaa;font-weight:600;margin-bottom:4px;}
+.cfg-group input{
+  width:100%;border:1.5px solid #e8eaed;border-radius:8px;
+  padding:7px 10px;font-size:13px;font-family:'DM Sans',sans-serif;
+  outline:none;transition:.2s;color:#111;background:#fafafa;
+}
+.cfg-group input:focus{border-color:#4285f4;background:#fff;}
+.cfg-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;}
+.btn{
+  padding:7px 18px;border-radius:8px;border:none;cursor:pointer;
+  font-family:'DM Sans',sans-serif;font-size:13px;font-weight:600;transition:.15s;
+}
+.btn-primary{background:#4285f4;color:#fff;}
+.btn-primary:hover{background:#2a75f3;}
+.btn-secondary{background:#f1f3f4;color:#444;}
+.btn-secondary:hover{background:#e8eaed;}
+.btn-danger{background:#fff;border:1.5px solid #ea4335;color:#ea4335;}
+.btn-danger:hover{background:#fef2f2;}
+
+/* CONN LOG */
+.conn-log{
+  background:#f8f9fa;border-radius:8px;border:1px solid #e8eaed;
+  padding:8px 12px;margin-top:12px;font-size:11px;font-family:monospace;
+  color:#666;max-height:80px;overflow-y:auto;line-height:1.8;
+}
+.log-ok{color:#34a853;}.log-err{color:#ea4335;}.log-info{color:#888;}
+
+/* ALERT */
+.alert-bar{
+  display:none;background:#fff8e1;border:1px solid #ffc107;
+  border-radius:12px;padding:10px 14px;margin-bottom:14px;
+  font-size:12px;color:#e65100;font-weight:500;
+  align-items:center;gap:8px;
+}
+.alert-bar.show{display:flex;}
+
+/* GAUGES */
+.gauges{
+  display:grid;grid-template-columns:repeat(2,1fr);
+  gap:12px;margin-bottom:12px;
+}
+@media(min-width:600px){.gauges{grid-template-columns:repeat(4,1fr);}}
+
+.gauge-card{
+  background:#fff;border-radius:16px;
+  padding:18px 12px 14px;box-shadow:0 1px 4px rgba(0,0,0,.07);
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+}
+.gauge-title{font-size:12px;color:#999;font-weight:500;}
+.gauge-wrap{position:relative;width:130px;height:80px;}
+.gauge-wrap svg{width:100%;height:100%;}
+.arc-bg{fill:none;stroke:#f0f2f5;stroke-width:9;stroke-linecap:round;}
+.arc-fg{
+  fill:none;stroke:#4285f4;stroke-width:9;stroke-linecap:round;
+  stroke-dasharray:194.8;stroke-dashoffset:194.8;
+  transition:stroke-dashoffset .7s cubic-bezier(.4,0,.2,1);
+}
+.gauge-center{
+  position:absolute;bottom:0;left:0;right:0;
+  display:flex;flex-direction:column;align-items:center;line-height:1;
+}
+.gauge-val{font-size:26px;font-weight:700;color:#111;}
+.gauge-unit{font-size:11px;color:#bbb;margin-top:3px;}
+.gauge-range{
+  display:flex;justify-content:space-between;width:130px;
+  font-size:10px;color:#ccc;
+}
+.pill{
+  font-size:10px;font-weight:600;padding:3px 12px;border-radius:20px;
+  background:#e8f5e9;color:#388e3c;transition:.3s;
+}
+.pill-warn{background:#fff8e1;color:#f57c00;}
+.pill-danger{background:#fce4ec;color:#c62828;}
+
+/* CHARTS */
+.charts{
+  display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;
+}
+@media(max-width:540px){.charts{grid-template-columns:1fr;}}
+.chart-card{
+  background:#fff;border-radius:16px;
+  padding:14px 16px;box-shadow:0 1px 4px rgba(0,0,0,.07);
+}
+.chart-card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px;}
+.chart-card-top h3{font-size:12px;font-weight:600;color:#333;}
+.chart-val{font-size:16px;font-weight:700;color:#4285f4;}
+.chart-wrap{height:110px;margin-top:8px;}
+
+/* LOG TABLE */
+.log-card{background:#fff;border-radius:16px;padding:16px 18px;box-shadow:0 1px 4px rgba(0,0,0,.07);}
+.log-card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.log-card-top h3{font-size:13px;font-weight:600;color:#111;}
+.row-count{font-size:11px;color:#bbb;background:#f8f9fa;border-radius:20px;padding:2px 10px;}
+.table-wrap{overflow-x:auto;}
+table{width:100%;border-collapse:collapse;font-size:12px;}
+th{text-align:left;padding:6px 10px;color:#bbb;font-size:11px;font-weight:600;border-bottom:1.5px solid #f4f6f9;}
+td{padding:8px 10px;border-bottom:1px solid #f8f9fa;color:#444;}
+tr:last-child td{border:none;}
+tr:hover td{background:#fafbff;}
+.td-time{color:#bbb;font-size:11px;}
+.badge{font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;}
+.badge-ok{background:#e8f5e9;color:#388e3c;}
+.badge-alert{background:#fce4ec;color:#c62828;}
+.empty{text-align:center;padding:24px;color:#ccc;font-size:13px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hdr-left">
+    <a class="back-btn" href="#">&#8592;</a>
+    <h1>Monitoring CAS</h1>
+    <div class="status-dot" id="statusDot"></div>
+  </div>
+  <div class="hdr-right">
+    <span class="conn-label" id="connLabel">Offline</span>
+    <div class="icon-btn">🔔</div>
+    <div class="icon-btn" onclick="toggleConfig()">⚙️</div>
+  </div>
+</header>
+
+<main>
+
+  <!-- CONFIG -->
+  <div class="config-card" id="configCard">
+    <h3>KONFIGURASI MQTT BROKER</h3>
+    <div class="cfg-grid">
+      <div class="cfg-group">
+        <label>BROKER HOST</label>
+        <input id="cfgHost" value="broker.hivemq.com"/>
+      </div>
+      <div class="cfg-group">
+        <label>WSS PORT</label>
+        <input id="cfgPort" value="8884"/>
+      </div>
+      <div class="cfg-group">
+        <label>PATH</label>
+        <input id="cfgPath" value="/mqtt"/>
+      </div>
+      <div class="cfg-group">
+        <label>USERNAME</label>
+        <input id="cfgUser" value=""/>
+      </div>
+      <div class="cfg-group">
+        <label>PASSWORD</label>
+        <input id="cfgPass" value="" type="password"/>
+      </div>
+    </div>
+    <div class="cfg-actions">
+      <button class="btn btn-primary"   onclick="connectManual()">Hubungkan</button>
+      <button class="btn btn-secondary" onclick="autoConnect()">↺ Auto Broker</button>
+      <button class="btn btn-danger" id="btnDisc" onclick="doDisconnect()" style="display:none">Putuskan</button>
+    </div>
+    <div class="conn-log" id="connLog">— Siap —</div>
+  </div>
+
+  <!-- ALERT -->
+  <div class="alert-bar" id="alertBar">⚠️ <span id="alertMsg"></span></div>
+
+  <!-- GAUGES -->
+  <div class="gauges">
+
+    <div class="gauge-card">
+      <div class="gauge-title">Suhu</div>
+      <div class="gauge-wrap">
+        <svg viewBox="0 0 160 90">
+          <path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+          <path class="arc-fg" id="arcSuhu" d="M18,82 A62,62 0 0,1 142,82"/>
+        </svg>
+        <div class="gauge-center">
+          <div class="gauge-val" id="valSuhu">--</div>
+          <div class="gauge-unit">°C</div>
+        </div>
+      </div>
+      <div class="gauge-range"><span>0</span><span>50</span></div>
+      <div class="pill" id="stSuhu">Normal</div>
+    </div>
+
+    <div class="gauge-card">
+      <div class="gauge-title">Kelembapan</div>
+      <div class="gauge-wrap">
+        <svg viewBox="0 0 160 90">
+          <path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+          <path class="arc-fg" id="arcHum" d="M18,82 A62,62 0 0,1 142,82"/>
+        </svg>
+        <div class="gauge-center">
+          <div class="gauge-val" id="valHum">--</div>
+          <div class="gauge-unit">%</div>
+        </div>
+      </div>
+      <div class="gauge-range"><span>0</span><span>100</span></div>
+      <div class="pill" id="stHum">Normal</div>
+    </div>
+
+    <div class="gauge-card">
+      <div class="gauge-title">CO₂</div>
+      <div class="gauge-wrap">
+        <svg viewBox="0 0 160 90">
+          <path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+          <path class="arc-fg" id="arcCO2" d="M18,82 A62,62 0 0,1 142,82"/>
+        </svg>
+        <div class="gauge-center">
+          <div class="gauge-val" id="valCO2" style="font-size:22px">--</div>
+          <div class="gauge-unit">% vol</div>
+        </div>
+      </div>
+      <div class="gauge-range"><span>0%</span><span>10%</span></div>
+      <div class="pill" id="stCO2">Normal</div>
+    </div>
+
+    <div class="gauge-card">
+      <div class="gauge-title">O₂</div>
+      <div class="gauge-wrap">
+        <svg viewBox="0 0 160 90">
+          <path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+          <path class="arc-fg" id="arcO2" d="M18,82 A62,62 0 0,1 142,82"/>
+        </svg>
+        <div class="gauge-center">
+          <div class="gauge-val" id="valO2">--</div>
+          <div class="gauge-unit">%</div>
+        </div>
+      </div>
+      <div class="gauge-range"><span>0</span><span>25</span></div>
+      <div class="pill" id="stO2">Normal</div>
+    </div>
+
+  </div>
+
+  <!-- CHARTS -->
+  <div class="charts">
+    <div class="chart-card">
+      <div class="chart-card-top">
+        <h3>Suhu</h3>
+        <div class="chart-val" id="curSuhu" style="color:#ef5350">--°C</div>
+      </div>
+      <div class="chart-wrap"><canvas id="cSuhu"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-top">
+        <h3>Kelembapan</h3>
+        <div class="chart-val" id="curHum" style="color:#4caf50">--%</div>
+      </div>
+      <div class="chart-wrap"><canvas id="cHum"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-top">
+        <h3>CO₂</h3>
+        <div class="chart-val" id="curCO2" style="color:#9c27b0">--% vol</div>
+      </div>
+      <div class="chart-wrap"><canvas id="cCO2"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-top">
+        <h3>O₂</h3>
+        <div class="chart-val" id="curO2" style="color:#2979ff">--%</div>
+      </div>
+      <div class="chart-wrap"><canvas id="cO2"></canvas></div>
+    </div>
+  </div>
+
+  <!-- LOG -->
+  <div class="log-card">
+    <div class="log-card-top">
+      <h3>Riwayat Data</h3>
+      <div class="row-count" id="rowCount">0 data</div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>WAKTU</th>
+            <th>SUHU (°C)</th>
+            <th>KELEMBAPAN (%)</th>
+            <th>CO₂ (% vol)</th>
+            <th>O₂ (%)</th>
+            <th>STATUS</th>
+          </tr>
+        </thead>
+        <tbody id="logBody">
+          <tr><td colspan="6" class="empty">Menunggu data dari perangkat...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script>
+// ── CONFIG ──
+const ARC = 194.8;
+const MAX = 30;
+const BROKERS = [
+  { host:'broker.hivemq.com',  port:8884, path:'/mqtt' },
+  { host:'broker.emqx.io',     port:8084, path:'/mqtt' },
+  { host:'test.mosquitto.org', port:8081, path:'/'      },
+];
+const TOPICS = ['Suhu CAS','Kelembapan CAS','CO2 CAS','O2 CAS'];
+
+let mqttClient = null;
+let brokerIdx  = 0;
+let buf = {suhu:null,hum:null,co2:null,o2:null};
+let rows = [];
+let configOpen = false;
+
+// ── CHARTS ──
+Chart.defaults.color = '#bbb';
+Chart.defaults.borderColor = '#f0f2f5';
+
+function mkChart(id, color, yMin, yMax) {
+  return new Chart(document.getElementById(id).getContext('2d'), {
+    type:'line',
+    data:{labels:[],datasets:[{data:[],borderColor:color,
+      backgroundColor:color+'20',borderWidth:2,tension:.4,pointRadius:0,fill:true}]},
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      animation:{duration:400},
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{maxRotation:0,maxTicksLimit:5,font:{size:9}},grid:{display:false}},
+        y:{min:yMin,max:yMax,ticks:{font:{size:9},maxTicksLimit:4},grid:{color:'#f5f5f5'}}
+      }
+    }
+  });
+}
+
+const charts = {
+  suhu: mkChart('cSuhu','#ef5350', 0,  50),
+  hum:  mkChart('cHum', '#4caf50', 0, 100),
+  co2:  mkChart('cCO2', '#9c27b0', 0,  10),
+  o2:   mkChart('cO2',  '#2979ff', 0,  25),
+};
+
+// ── GAUGE ──
+function setArc(id, val, min, max) {
+  const r = Math.min(Math.max((val-min)/(max-min), 0), 1);
+  document.getElementById(id).style.strokeDashoffset = ARC * (1 - r);
+}
+
+function setPill(id, val, okLo, okHi, warnLo, warnHi) {
+  const el = document.getElementById(id);
+  if (val >= okLo && val <= okHi)     { el.textContent='Normal';    el.className='pill'; }
+  else if (val >= warnLo && val <= warnHi) { el.textContent='Peringatan'; el.className='pill pill-warn'; }
+  else                                { el.textContent='Bahaya';    el.className='pill pill-danger'; }
+}
+
+// ── PUSH CHART ──
+function pushChart(chart, val) {
+  const t = new Date().toLocaleTimeString('id-ID',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  chart.data.labels.push(t);
+  chart.data.datasets[0].data.push(val);
+  if (chart.data.labels.length > MAX) { chart.data.labels.shift(); chart.data.datasets[0].data.shift(); }
+  chart.update('none');
+}
+
+// ── ALERT ──
+function checkAlert(s,h,c,o) {
+  const msgs = [];
+  if(s>40)  msgs.push('Suhu terlalu tinggi ('+s.toFixed(1)+'°C)');
+  if(h<20)  msgs.push('Kelembapan rendah ('+h.toFixed(1)+'%)');
+  if(c>8)   msgs.push('CO₂ berbahaya ('+c.toFixed(2)+'% vol)');
+  if(o<18)  msgs.push('O₂ rendah ('+o.toFixed(1)+'%)');
+  const bar = document.getElementById('alertBar');
+  if (msgs.length) { document.getElementById('alertMsg').textContent = msgs.join(' • '); bar.classList.add('show'); }
+  else bar.classList.remove('show');
+}
+
+// ── ON MESSAGE ──
+function onMsg(topic, payload) {
+  const v = parseFloat(payload); if(isNaN(v)) return;
+  if      (topic==='Suhu CAS')       buf.suhu = v;
+  else if (topic==='Kelembapan CAS') buf.hum  = v;
+  else if (topic==='CO2 CAS')        buf.co2  = v;
+  else if (topic==='O2 CAS')         buf.o2   = v;
+
+  const {suhu:s,hum:h,co2:c,o2:o} = buf;
+  if(s===null||h===null||c===null||o===null) return;
+
+  // CO2: ESP32 kirim ppm → konversi ke % vol
+  const cPct = c / 10000;
+
+  document.getElementById('valSuhu').textContent = s.toFixed(1);
+  document.getElementById('valHum').textContent  = h.toFixed(1);
+  document.getElementById('valCO2').textContent  = cPct.toFixed(2);
+  document.getElementById('valO2').textContent   = o.toFixed(1);
+  document.getElementById('curSuhu').textContent = s.toFixed(1)+'°C';
+  document.getElementById('curHum').textContent  = h.toFixed(1)+'%';
+  document.getElementById('curCO2').textContent  = cPct.toFixed(2)+'% vol';
+  document.getElementById('curO2').textContent   = o.toFixed(1)+'%';
+
+  setArc('arcSuhu', s,    0,  50);
+  setArc('arcHum',  h,    0, 100);
+  setArc('arcCO2',  cPct, 0,  10);
+  setArc('arcO2',   o,    0,  25);
+  setPill('stSuhu', s,    10,35, 5,40);
+  setPill('stHum',  h,    40,80,20,90);
+  setPill('stCO2',  cPct,  0, 5, 5, 8);
+  setPill('stO2',   o,   19.5,23,18,19.5);
+  checkAlert(s,h,cPct,o);
+
+  pushChart(charts.suhu, s);
+  pushChart(charts.hum,  h);
+  pushChart(charts.co2,  cPct);
+  pushChart(charts.o2,   o);
+
+  const t = new Date().toLocaleTimeString('id-ID',{hour12:false});
+  const ok = (s<=40&&h>=20&&cPct<=5&&o>=18);
+  rows.unshift({t, s:s.toFixed(1), h:h.toFixed(1), c:cPct.toFixed(2)+'%', o:o.toFixed(1), ok});
+  if(rows.length>50) rows.pop();
+  document.getElementById('logBody').innerHTML = rows.map(r=>`
+    <tr>
+      <td class="td-time">${r.t}</td>
+      <td>${r.s}</td><td>${r.h}</td><td>${r.c}</td><td>${r.o}</td>
+      <td><span class="badge ${r.ok?'badge-ok':'badge-alert'}">${r.ok?'Normal':'Alert'}</span></td>
+    </tr>`).join('');
+  document.getElementById('rowCount').textContent = rows.length+' data';
+  buf={suhu:null,hum:null,co2:null,o2:null};
+}
+
+// ── STATUS ──
+function setStatus(state) {
+  const dot = document.getElementById('statusDot');
+  const lbl = document.getElementById('connLabel');
+  dot.className = 'status-dot '+state;
+  lbl.textContent = state==='online'?'Online':state==='connecting'?'Menghubungkan...':'Offline';
+}
+
+function addLog(msg, cls='log-info') {
+  const el = document.getElementById('connLog');
+  const t  = new Date().toLocaleTimeString('id-ID',{hour12:false});
+  el.innerHTML += `<div class="${cls}">[${t}] ${msg}</div>`;
+  el.scrollTop  = el.scrollHeight;
+}
+
+// ── CONNECT ──
+function doConnect(host, port, path, user, pass) {
+  if(mqttClient){try{mqttClient.end(true);}catch(e){} mqttClient=null;}
+  const cid = 'cas_'+Math.random().toString(16).substr(2,8);
+  const url  = 'wss://'+host+':'+port+path;
+  addLog('Menghubungi '+url);
+  setStatus('connecting');
+
+  const opts={clientId:cid,clean:true,reconnectPeriod:0,connectTimeout:8000};
+  if(user) opts.username=user;
+  if(pass) opts.password=pass;
+
+  mqttClient = mqtt.connect(url, opts);
+
+  mqttClient.on('connect',()=>{
+    addLog('✓ Terhubung ke '+host,'log-ok');
+    setStatus('online');
+    document.getElementById('btnDisc').style.display='';
+    TOPICS.forEach(t=>{
+      mqttClient.subscribe(t,{qos:0},(err)=>{
+        if(!err) addLog('↓ Subscribe: '+t,'log-ok');
+        else     addLog('✗ Gagal subscribe: '+t,'log-err');
+      });
+    });
+  });
+
+  mqttClient.on('message',(topic,payload)=>onMsg(topic,payload.toString()));
+  mqttClient.on('error',  (err)=>{addLog('✗ Error: '+err.message,'log-err');setStatus('offline');});
+  mqttClient.on('close',  ()=>{setStatus('offline');document.getElementById('btnDisc').style.display='none';});
+}
+
+function connectManual() {
+  doConnect(
+    document.getElementById('cfgHost').value.trim(),
+    parseInt(document.getElementById('cfgPort').value)||8884,
+    document.getElementById('cfgPath').value.trim()||'/mqtt',
+    document.getElementById('cfgUser').value.trim(),
+    document.getElementById('cfgPass').value
+  );
+}
+
+// Auto: coba broker satu per satu sampai berhasil
+function autoConnect() {
+  brokerIdx = 0;
+  tryNext();
+}
+
+function tryNext() {
+  if(brokerIdx >= BROKERS.length){
+    addLog('✗ Semua broker gagal. Cek koneksi internet.','log-err');
+    setStatus('offline'); return;
+  }
+  const b = BROKERS[brokerIdx];
+  addLog('Mencoba ['+(brokerIdx+1)+'/'+BROKERS.length+']: '+b.host);
+  if(mqttClient){try{mqttClient.end(true);}catch(e){} mqttClient=null;}
+
+  const cid = 'cas_'+Math.random().toString(16).substr(2,8);
+  mqttClient = mqtt.connect('wss://'+b.host+':'+b.port+b.path,
+    {clientId:cid,clean:true,reconnectPeriod:0,connectTimeout:7000});
+  setStatus('connecting');
+
+  const timer = setTimeout(()=>{
+    addLog('✗ Timeout: '+b.host,'log-err');
+    try{mqttClient.end(true);}catch(e){} mqttClient=null;
+    brokerIdx++; tryNext();
+  }, 8000);
+
+  mqttClient.on('connect',()=>{
+    clearTimeout(timer);
+    addLog('✓ Berhasil: '+b.host,'log-ok');
+    setStatus('online');
+    document.getElementById('cfgHost').value = b.host;
+    document.getElementById('cfgPort').value = b.port;
+    document.getElementById('cfgPath').value = b.path;
+    document.getElementById('btnDisc').style.display='';
+    TOPICS.forEach(t=>{
+      mqttClient.subscribe(t,{qos:0},(err)=>{
+        if(!err) addLog('↓ Subscribe: '+t,'log-ok');
+      });
+    });
+  });
+
+  mqttClient.on('message',(topic,payload)=>onMsg(topic,payload.toString()));
+  mqttClient.on('error',(err)=>{
+    clearTimeout(timer);
+    addLog('✗ '+b.host+': '+err.message,'log-err');
+    brokerIdx++; tryNext();
+  });
+  mqttClient.on('close',()=>{setStatus('offline');document.getElementById('btnDisc').style.display='none';});
+}
+
+function doDisconnect() {
+  if(mqttClient){try{mqttClient.end(true);}catch(e){} mqttClient=null;}
+  setStatus('offline');
+  document.getElementById('btnDisc').style.display='none';
+  addLog('— Terputus manual');
+}
+
+function toggleConfig() {
+  configOpen = !configOpen;
+  document.getElementById('configCard').classList.toggle('open', configOpen);
+}
+
+// Auto connect saat load
+window.addEventListener('load', ()=>{
+  document.getElementById('configCard').classList.add('open');
+  configOpen = true;
+  setTimeout(autoConnect, 800);
+});
+</script>
+</body>
+</html>
