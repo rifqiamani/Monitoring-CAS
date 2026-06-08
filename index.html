@@ -3,38 +3,250 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Monitoring CAS</title>
+  <title>Monitoring CAS - Premium Dashboard</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
+    :root {
+      --bg-dark: #111625;
+      --card-bg: #ffffff;
+      --text-main: #222222;
+      --text-muted: #777777;
+      --border-color: #eaeaea;
+    }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background-color: #0c101b; color: #fff; font-family: 'DM Sans', sans-serif; padding: 15px; }
-    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-    .hdr-left { display: flex; align-items: center; gap: 10px; }
-    .back-btn { color: #fff; text-decoration: none; font-size: 20px; }
-    .status-dot { width: 8px; height: 8px; background-color: #ffb703; border-radius: 50%; display: inline-block; margin-left: 5px; }
-    .status-dot.online { background-color: #00b4d8; }
-    .status-dot.offline { background-color: #ef4444; }
-    .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
-    .card { background-color: #141b2d; border-radius: 12px; padding: 15px; position: relative; }
-    .card-title { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; margin-bottom: 8px; }
-    .card-value { font-size: 28px; font-weight: 700; }
-    .unit { font-size: 14px; color: #555; margin-left: 2px; }
-    .progress-bar { width: 100%; height: 4px; background-color: #1f293d; border-radius: 2px; margin-top: 10px; overflow: hidden; }
-    .progress-fill { height: 100%; background-color: #00b4d8; width: 0%; transition: width 0.3s; }
-    .config-card { background-color: #141b2d; border-radius: 12px; padding: 15px; margin-top: 20px; }
-    .config-card h3 { font-size: 12px; font-weight: 600; color: #888; letter-spacing: .5px; margin-bottom: 14px; }
-    .cfg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
-    .cfg-group label { display: block; font-size: 11px; color: #aaa; font-weight: 600; margin-bottom: 4px; }
-    .cfg-group input { width: 100%; background-color: #0c101b; border: 1.5px solid #1f293d; border-radius: 8px; padding: 7px 10px; font-size: 13px; color: #fff; outline: none; }
-    .btn { padding: 7px 18px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; }
-    .btn-primary { background-color: #00b4d8; color: #fff; width: 100%; margin-top: 15px; padding: 10px; }
-    .stale { opacity: .45; }
+    body { background-color: var(--bg-dark); color: #fff; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 20px; }
+    
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 1px solid #222d4a; }
+    .hdr-left h1 { font-size: 22px; font-weight: 700; display: flex; align-items: center; gap: 10px; }
+    .status-dot { width: 10px; height: 10px; background-color: #ffb703; border-radius: 50%; display: inline-block; }
+    .status-dot.online { background-color: #4caf50; }
+    .status-dot.offline { background-color: #f44336; }
+
+    /* Grid Atas: Lingkaran Gauge */
+    .grid-gauge { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; margin-bottom: 25px; }
+    .card-gauge { background-color: var(--card-bg); border-radius: 12px; padding: 20px; color: var(--text-main); position: relative; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .gauge-title { font-size: 14px; font-weight: 600; color: var(--text-muted); margin-bottom: 10px; text-align: left; }
+    .gauge-container { position: relative; width: 100%; height: 130px; margin: 0 auto; }
+    .gauge-value { position: absolute; bottom: 15px; left: 50%; transform: translateX(-50%); font-size: 28px; font-weight: 700; color: #111; }
+    .gauge-value span { font-size: 16px; color: #666; font-weight: 500; margin-left: 2px; }
+
+    /* Grid Bawah: Grafik Histori */
+    .grid-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(450px, 1fr)); gap: 20px; margin-bottom: 25px; }
+    @media (max-width: 500px) { .grid-charts { grid-template-columns: 1fr; } }
+    .card-history { background-color: var(--card-bg); border-radius: 12px; padding: 20px; color: var(--text-main); box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+    .chart-title { font-size: 14px; font-weight: 600; color: var(--text-muted); margin-bottom: 15px; }
+
+    /* Panel Config */
+    .config-card { background-color: #1a2238; border-radius: 12px; padding: 20px; border: 1px solid #222d4a; }
+    .config-card h3 { font-size: 13px; color: #8898aa; margin-bottom: 15px; letter-spacing: 0.5px; }
+    .cfg-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; }
+    .cfg-group label { display: block; font-size: 11px; color: #8898aa; margin-bottom: 5px; font-weight: 600; }
+    .cfg-group input { width: 100%; background-color: #111625; border: 1px solid #222d4a; border-radius: 6px; padding: 8px 12px; font-size: 13px; color: #fff; outline: none; }
+    .btn-connect { width: 100%; background: #00bcd4; border: none; padding: 12px; border-radius: 6px; color: white; font-weight: 600; cursor: pointer; margin-top: 15px; transition: 0.2s; }
+    .btn-connect:hover { background: #00acc1; }
   </style>
 </head>
 <body>
 
   <header>
     <div class="hdr-left">
+      <h1>Monitoring CAS <span id="statusDot" class="status-dot"></span></h1>
+    </div>
+    <div class="hdr-right">
+      <span id="connLabel" style="font-size: 13px; color: #8898aa; font-weight: 600;">Mencoba Hubungkan...</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="grid-gauge">
+      <div class="card-gauge">
+        <div class="gauge-title">Suhu</div>
+        <div class="gauge-container">
+          <canvas id="chartSuhu"></canvas>
+          <div class="gauge-value"><span id="valSuhu">--.-</span><span>°C</span></div>
+        </div>
+      </div>
+      <div class="card-gauge">
+        <div class="gauge-title">Kelembapan</div>
+        <div class="gauge-container">
+          <canvas id="chartHum"></canvas>
+          <div class="gauge-value"><span id="valHum">--.-</span><span>%</span></div>
+        </div>
+      </div>
+      <div class="card-gauge">
+        <div class="gauge-title">CO2</div>
+        <div class="gauge-container">
+          <canvas id="chartCO2"></canvas>
+          <div class="gauge-value"><span id="valCO2">----</span><span>ppm</span></div>
+        </div>
+      </div>
+      <div class="card-gauge">
+        <div class="gauge-title">O2</div>
+        <div class="gauge-container">
+          <canvas id="chartO2"></canvas>
+          <div class="gauge-value"><span id="valO2">--.-</span><span>%</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-charts">
+      <div class="card-history">
+        <div class="chart-title">Riwayat Temperatur (°C)</div>
+        <canvas id="historySuhu" height="180"></canvas>
+      </div>
+      <div class="card-history">
+        <div class="chart-title">Riwayat Kelembapan (%)</div>
+        <canvas id="historyHum" height="180"></canvas>
+      </div>
+    </div>
+
+    <div class="config-card">
+      <h3>KONFIGURASI SISTEM VPS</h3>
+      <div class="cfg-grid">
+        <div class="cfg-group">
+          <label>BROKER HOST</label>
+          <input id="cfgHost" value="202.155.90.225">
+        </div>
+        <div class="cfg-group">
+          <label>WSS PORT</label>
+          <input id="cfgPort" value="8884">
+        </div>
+        <div class="cfg-group">
+          <label>PATH</label>
+          <input id="cfgPath" value="/mqtt">
+        </div>
+      </div>
+      <button class="btn-connect" onclick="initMQTT()">Hubungkan Jalur Data</button>
+    </div>
+  </main>
+
+  <script>
+    // Konfigurasi Objek Chart.js untuk Diagram Setengah Lingkaran (Gauge)
+    function createGaugeConfig(color, maxVal) {
+      return {
+        type: 'doughnut',
+        data: {
+          datasets: [{
+            data: [0, maxVal],
+            backgroundColor: [color, '#e0e0e0'],
+            borderWidth: 0,
+            circumference: 180,
+            rotation: 270,
+            cutout: '85%'
+          }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false }, tooltip: { enabled: false } } }
+      };
+    }
+
+    // Inisialisasi 4 Grafik Gauge Utama
+    const gaugeSuhu = new Chart(document.getElementById('chartSuhu'), createGaugeConfig('#8bc34a', 50));
+    const gaugeHum = new Chart(document.getElementById('chartHum'), createGaugeConfig('#ff9800', 100));
+    const gaugeCO2 = new Chart(document.getElementById('chartCO2'), createGaugeConfig('#00bcd4', 5000));
+    const gaugeO2 = new Chart(document.getElementById('chartO2'), createGaugeConfig('#3f51b5', 25));
+
+    // Inisialisasi 2 Grafik Riwayat / Batang (Real-time Timeline)
+    const historyCtxSuhu = document.getElementById('historySuhu').getContext('2d');
+    const chartHistorySuhu = new Chart(historyCtxSuhu, {
+      type: 'bar',
+      data: { labels: [], datasets: [{ label: 'Suhu', data: [], backgroundColor: '#b71c1c', barThickness: 15 }] },
+      options: { responsive: true, scales: { y: { min: 0, max: 50 }, x: { grid: { display: false } } } }
+    });
+
+    const historyCtxHum = document.getElementById('historyHum').getContext('2d');
+    const chartHistoryHum = new Chart(historyCtxHum, {
+      type: 'bar',
+      data: { labels: [], datasets: [{ label: 'Kelembapan', data: [], backgroundColor: '#006064', barThickness: 15 }] },
+      options: { responsive: true, scales: { y: { min: 0, max: 100 }, x: { grid: { display: false } } } }
+    });
+
+    // Jalur MQTT Broker VPS
+    const topics = { suhu: "cas/suhu", kelembaban: "cas/kelembaban", co2: "cas/co2", o2: "cas/o2" };
+    let mqttClient = null;
+
+    function updateDashboard(type, value) {
+      const num = parseFloat(value);
+      if (isNaN(num)) return;
+
+      const now = new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+      if (type === 'suhu') {
+        document.getElementById('valSuhu').innerText = num.toFixed(1);
+        gaugeSuhu.data.datasets[0].data = [num, Math.max(50 - num, 0)];
+        gaugeSuhu.update();
+        
+        // Tambah data ke diagram batang riwayat
+        if(chartHistorySuhu.data.labels.length > 7) { chartHistorySuhu.data.labels.shift(); chartHistorySuhu.data.datasets[0].data.shift(); }
+        chartHistorySuhu.data.labels.push(now);
+        chartHistorySuhu.data.datasets[0].data.push(num);
+        chartHistorySuhu.update();
+      } 
+      else if (type === 'kelembaban') {
+        document.getElementById('valHum').innerText = num.toFixed(1);
+        gaugeHum.data.datasets[0].data = [num, Math.max(100 - num, 0)];
+        gaugeHum.update();
+
+        if(chartHistoryHum.data.labels.length > 7) { chartHistoryHum.data.labels.shift(); chartHistoryHum.data.datasets[0].data.shift(); }
+        chartHistoryHum.data.labels.push(now);
+        chartHistoryHum.data.datasets[0].data.push(num);
+        chartHistoryHum.update();
+      } 
+      else if (type === 'co2') {
+        document.getElementById('valCO2').innerText = Math.round(num);
+        gaugeCO2.data.datasets[0].data = [num, Math.max(5000 - num, 0)];
+        gaugeCO2.update();
+      } 
+      else if (type === 'o2') {
+        document.getElementById('valO2').innerText = num.toFixed(1);
+        gaugeO2.data.datasets[0].data = [num, Math.max(25 - num, 0)];
+        gaugeO2.update();
+      }
+    }
+
+    function initMQTT() {
+      const host = document.getElementById('cfgHost').value.trim();
+      const port = document.getElementById('cfgPort').value.trim();
+      const path = document.getElementById('cfgPath').value.trim();
+
+      const statusDot = document.getElementById('statusDot');
+      const connLabel = document.getElementById('connLabel');
+
+      statusDot.className = "status-dot";
+      connLabel.innerText = "Connecting...";
+
+      if (mqttClient) { mqttClient.end(); }
+
+      mqttClient = mqtt.connect(`ws://${host}:${port}${path}`, { connectTimeout: 4000 });
+
+      mqttClient.on('connect', () => {
+        statusDot.className = "status-dot online";
+        connLabel.innerText = "VPS ONLINE";
+        connLabel.style.color = "#4caf50";
+        Object.values(topics).forEach(t => mqttClient.subscribe(t));
+      });
+
+      mqttClient.on('message', (topic, message) => {
+        const payload = message.toString();
+        if (topic === topics.suhu) updateDashboard('suhu', payload);
+        if (topic === topics.kelembaban) updateDashboard('kelembaban', payload);
+        if (topic === topics.co2) updateDashboard('co2', payload);
+        if (topic === topics.o2) updateDashboard('o2', payload);
+      });
+
+      mqttClient.on('close', () => {
+        statusDot.className = "status-dot offline";
+        connLabel.innerText = "OFFLINE";
+        connLabel.style.color = "#f44336";
+      });
+    }
+
+    window.onload = () => { setTimeout(initMQTT, 1000); };
+  </script>
+</body>
+</html>
+<div class="hdr-left">
       <a class="back-btn" href="#">&larr;</a>
       <h1>Monitoring CAS <span id="statusDot" class="status-dot"></span></h1>
     </div>
