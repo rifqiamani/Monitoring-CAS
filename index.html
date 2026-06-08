@@ -1,39 +1,175 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>CAS Monitor</title>
+  <title>Monitoring CAS</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
   <style>
-    :root {
-      --bg-dark: #070a13;
-      --card-bg: #0d1527;
-      --text-main: #ffffff;
-      --text-muted: #64748b;
-      --border-color: #1e293b;
-      --primary: #00f0ff;
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background-color: #0c101b; color: #fff; font-family: 'DM Sans', sans-serif; padding: 15px; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .hdr-left { display: flex; align-items: center; gap: 10px; }
+    .back-btn { color: #fff; text-decoration: none; font-size: 20px; }
+    .status-dot { width: 8px; height: 8px; background-color: #ffb703; border-radius: 50%; display: inline-block; margin-left: 5px; }
+    .status-dot.online { background-color: #00b4d8; }
+    .status-dot.offline { background-color: #ef4444; }
+    .grid-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+    .card { background-color: #141b2d; border-radius: 12px; padding: 15px; position: relative; }
+    .card-title { font-size: 11px; text-transform: uppercase; color: #888; font-weight: 600; margin-bottom: 8px; }
+    .card-value { font-size: 28px; font-weight: 700; }
+    .unit { font-size: 14px; color: #555; margin-left: 2px; }
+    .progress-bar { width: 100%; height: 4px; background-color: #1f293d; border-radius: 2px; margin-top: 10px; overflow: hidden; }
+    .progress-fill { height: 100%; background-color: #00b4d8; width: 0%; transition: width 0.3s; }
+    .config-card { background-color: #141b2d; border-radius: 12px; padding: 15px; margin-top: 20px; }
+    .config-card h3 { font-size: 12px; font-weight: 600; color: #888; letter-spacing: .5px; margin-bottom: 14px; }
+    .cfg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+    .cfg-group label { display: block; font-size: 11px; color: #aaa; font-weight: 600; margin-bottom: 4px; }
+    .cfg-group input { width: 100%; background-color: #0c101b; border: 1.5px solid #1f293d; border-radius: 8px; padding: 7px 10px; font-size: 13px; color: #fff; outline: none; }
+    .btn { padding: 7px 18px; border-radius: 8px; border: none; cursor: pointer; font-size: 13px; font-weight: 600; }
+    .btn-primary { background-color: #00b4d8; color: #fff; width: 100%; margin-top: 15px; padding: 10px; }
+    .stale { opacity: .45; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="hdr-left">
+      <a class="back-btn" href="#">&larr;</a>
+      <h1>Monitoring CAS <span id="statusDot" class="status-dot"></span></h1>
+    </div>
+    <div class="hdr-right">
+      <span id="connLabel" style="font-size: 12px; color: #888;">Offline</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="grid-container">
+      <div class="card" id="cardSuhu">
+        <div class="card-title">Temperatur</div>
+        <div class="card-value"><span id="txtSuhu">--.-</span><span class="unit">°C</span></div>
+        <div class="progress-bar"><div id="barSuhu" class="progress-fill"></div></div>
+      </div>
+      <div class="card" id="cardHum">
+        <div class="card-title">Humidity</div>
+        <div class="card-value"><span id="txtHum">--.-</span><span class="unit">%</span></div>
+        <div class="progress-bar"><div id="barHum" class="progress-fill"></div></div>
+      </div>
+      <div class="card" id="cardCO2">
+        <div class="card-title">Karbondioksida (CO₂)</div>
+        <div class="card-value"><span id="txtCO2">----</span><span class="unit">ppm</span></div>
+        <div class="progress-bar"><div id="barCO2" class="progress-fill"></div></div>
+      </div>
+      <div class="card" id="cardO2">
+        <div class="card-title">Oksigen (O₂)</div>
+        <div class="card-value"><span id="txtO2">--.-</span><span class="unit">%</span></div>
+        <div class="progress-bar"><div id="barO2" class="progress-fill"></div></div>
+      </div>
+    </div>
+
+    <div class="config-card" id="configCard">
+      <h3>KONFIGURASI MQTT BROKER</h3>
+      <div class="cfg-grid">
+        <div class="cfg-group">
+          <label>BROKER HOST</label>
+          <input id="cfgHost" value="202.155.90.225">
+        </div>
+        <div class="cfg-group">
+          <label>WSS PORT</label>
+          <input id="cfgPort" value="8884">
+        </div>
+        <div class="cfg-group">
+          <label>PATH</label>
+          <input id="cfgPath" value="/mqtt">
+        </div>
+      </div>
+      <button class="btn btn-primary" onclick="initMQTT()">Hubungkan Ulang</button>
+    </div>
+  </main>
+
+  <script>
+    const topics = {
+      suhu: "cas/suhu",
+      kelembaban: "cas/kelembaban",
+      co2: "cas/co2",
+      o2: "cas/o2"
+    };
+
+    let client = null;
+
+    function updateWidget(type, value) {
+      const valNum = parseFloat(value);
+      if (isNaN(valNum)) return;
+
+      if (type === 'suhu') {
+        document.getElementById('txtSuhu').innerText = valNum.toFixed(1);
+        document.getElementById('barSuhu').style.width = `${Math.min((valNum / 60) * 100, 100)}%`;
+      } else if (type === 'kelembaban') {
+        document.getElementById('txtHum').innerText = valNum.toFixed(1);
+        document.getElementById('barHum').style.width = `${Math.min(valNum, 100)}%`;
+      } else if (type === 'co2') {
+        document.getElementById('txtCO2').innerText = Math.round(valNum);
+        document.getElementById('barCO2').style.width = `${Math.min((valNum / 5000) * 100, 100)}%`;
+      } else if (type === 'o2') {
+        document.getElementById('txtO2').innerText = valNum.toFixed(1);
+        document.getElementById('barO2').style.width = `${Math.min((valNum / 25) * 100, 100)}%`;
+      }
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
+    function initMQTT() {
+      const host = document.getElementById('cfgHost').value.trim();
+      const port = document.getElementById('cfgPort').value.trim();
+      const path = document.getElementById('cfgPath').value.trim();
+
+      const statusDot = document.getElementById('statusDot');
+      const connLabel = document.getElementById('connLabel');
+
+      statusDot.className = "status-dot";
+      connLabel.innerText = "Connecting...";
+
+      if (client) {
+        client.end();
+      }
+
+      const options = {
+        connectTimeout: 4000,
+        clientId: 'web_cas_' + Math.random().toString(16).substr(2, 8),
+        path: path
+      };
+
+      client = mqtt.connect(`ws://${host}:${port}`, options);
+
+      client.on('connect', () => {
+        statusDot.className = "status-dot online";
+        connLabel.innerText = "Connected";
+        connLabel.style.color = "#00b4d8";
+
+        Object.values(topics).forEach(topic => {
+          client.subscribe(topic);
+        });
+      });
+
+      client.on('message', (topic, message) => {
+        const payload = message.toString();
+        if (topic === topics.suhu) updateWidget('suhu', payload);
+        if (topic === topics.kelembaban) updateWidget('kelembaban', payload);
+        if (topic === topics.co2) updateWidget('co2', payload);
+        if (topic === topics.o2) updateWidget('o2', payload);
+      });
+
+      client.on('close', () => {
+        statusDot.className = "status-dot offline";
+        connLabel.innerText = "Offline";
+        connLabel.style.color = "#ef4444";
+      });
     }
 
-    body {
-      background-color: var(--bg-dark);
-      color: var(--text-main);
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      padding: 16px;
-      min-height: 100vh;
-    }
-
-    header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 24px;
+    window.onload = () => {
+      setTimeout(initMQTT, 1000);
+    };
+  </script>
+</body>
+</html>
       padding-bottom: 16px;
       border-bottom: 1px solid var(--border-color);
     }
