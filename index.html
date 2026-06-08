@@ -1,39 +1,299 @@
 <!DOCTYPE html>
-<html lang="id">
+<html lang="en">
 <head>
-<meta charset="UTF-8"/>
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Monitoring CAS</title>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
-<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-html,body{height:100%;font-family:'DM Sans',sans-serif;background:#f4f6f9;color:#1a1a2e}
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CAS Monitor</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+  <style>
+    :root {
+      --bg-dark: #070a13;
+      --card-bg: #0d1527;
+      --text-main: #ffffff;
+      --text-muted: #64748b;
+      --border-color: #1e293b;
+      --primary: #00f0ff;
+    }
 
-header{
-  background:#fff;padding:0 20px;height:56px;
-  display:flex;align-items:center;justify-content:space-between;
-  border-bottom:1px solid #e8eaed;position:sticky;top:0;z-index:100;
-}
-.hdr-left{display:flex;align-items:center;gap:10px;}
-.back-btn{width:32px;height:32px;display:grid;place-items:center;color:#666;border-radius:8px;text-decoration:none;font-size:18px;}
-.back-btn:hover{background:#f4f6f9;}
-header h1{font-size:16px;font-weight:600;color:#111;}
-.status-dot{width:8px;height:8px;border-radius:50%;background:#ccc;transition:background .3s;}
-.status-dot.online{background:#4caf50;}
-.status-dot.connecting{background:#ff9800;animation:blink .7s step-end infinite;}
-@keyframes blink{50%{opacity:0}}
-.hdr-right{display:flex;align-items:center;gap:4px;}
-.conn-label{font-size:12px;color:#999;font-weight:500;}
-.last-update{font-size:11px;color:#bbb;margin-right:6px;}
-.icon-btn{width:36px;height:36px;display:grid;place-items:center;border-radius:8px;cursor:pointer;color:#666;font-size:18px;}
-.icon-btn:hover{background:#f4f6f9;}
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
 
-main{padding:16px;max-width:900px;margin:0 auto;}
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 16px;
+      min-height: 100vh;
+    }
 
-.config-card{background:#fff;border-radius:16px;padding:16px 18px;margin-bottom:14px;box-shadow:0 1px 4px rgba(0,0,0,.07);display:none;}
-.config-card.open{display:block;}
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .hdr-left h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      display: flex;
+      align-items: center;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      background-color: #e2b13c;
+      border-radius: 50%;
+      margin-left: 8px;
+    }
+
+    .status-dot.online { background-color: #10b981; }
+    .status-dot.offline { background-color: #ef4444; }
+
+    .grid-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 20px;
+      position: relative;
+    }
+
+    .card-title {
+      font-size: 12px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      font-weight: 600;
+      letter-spacing: 1px;
+      margin-bottom: 12px;
+    }
+
+    .card-value {
+      font-size: 40px;
+      font-weight: 700;
+      margin-bottom: 16px;
+    }
+
+    .unit {
+      font-size: 18px;
+      color: var(--text-muted);
+      font-weight: 500;
+    }
+
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background-color: #1e293b;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #00c6ff, #0072ff);
+      width: 0%;
+      transition: width 0.5s ease;
+    }
+
+    .config-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 16px;
+      padding: 20px;
+      margin-top: 24px;
+    }
+
+    .config-card h3 {
+      font-size: 14px;
+      margin-bottom: 16px;
+      color: var(--primary);
+    }
+
+    .cfg-group {
+      margin-bottom: 12px;
+    }
+
+    .cfg-group label {
+      display: block;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .cfg-group input {
+      width: 100%;
+      background-color: var(--bg-dark);
+      border: 1px solid var(--border-color);
+      padding: 10px;
+      border-radius: 8px;
+      color: white;
+      font-size: 14px;
+    }
+
+    .btn-connect {
+      width: 100%;
+      background: linear-gradient(90deg, #00f0ff, #0072ff);
+      border: none;
+      padding: 12px;
+      border-radius: 8px;
+      color: white;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+
+    .stale { opacity: .45; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="hdr-left">
+      <h1>Monitoring CAS <span id="statusDot" class="status-dot"></span></h1>
+    </div>
+    <div class="hdr-right">
+      <span id="connLabel" class="text-muted" style="font-size: 12px;">Offline</span>
+    </div>
+  </header>
+
+  <main>
+    <div class="grid-container">
+      <div class="card">
+        <div class="card-title">Temperatur</div>
+        <div class="card-value"><span id="txtSuhu">--.-</span><span class="unit">°C</span></div>
+        <div class="progress-bar"><div id="barSuhu" class="progress-fill"></div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Humidity</div>
+        <div class="card-value"><span id="txtHum">--.-</span><span class="unit">%</span></div>
+        <div class="progress-bar"><div id="barHum" class="progress-fill" style="background: linear-gradient(90deg, #3b82f6, #2563eb);"></div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Karbondioksida (CO₂)</div>
+        <div class="card-value"><span id="txtCO2">----</span><span class="unit">ppm</span></div>
+        <div class="progress-bar"><div id="barCO2" class="progress-fill" style="background: linear-gradient(90deg, #a855f7, #7c3aed);"></div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Oksigen (O₂)</div>
+        <div class="card-value"><span id="txtO2">--.-</span><span class="unit">%</span></div>
+        <div class="progress-bar"><div id="barO2" class="progress-fill" style="background: linear-gradient(90deg, #10b981, #059669);"></div></div>
+      </div>
+    </div>
+
+    <div class="config-card">
+      <h3>Konfigurasi Broker VPS</h3>
+      <div class="cfg-group">
+        <label>BROKER HOST (IP VPS)</label>
+        <input id="cfgHost" type="text" value="202.155.90.225">
+      </div>
+      <div class="cfg-group">
+        <label>WSS PORT</label>
+        <input id="cfgPort" type="text" value="8884">
+      </div>
+      <button class="btn-connect" onclick="connectMQTT()">Hubungkan Ulang</button>
+    </div>
+  </main>
+
+  <script>
+    // Struktur topik Tugas Akhir CAS
+    const topics = {
+      suhu: "cas/suhu",
+      kelembaban: "cas/kelembaban",
+      co2: "cas/co2",
+      o2: "cas/o2"
+    };
+
+    let client = null;
+
+    function updateView(type, value) {
+      const num = parseFloat(value);
+      if (isNaN(num)) return;
+
+      if (type === 'suhu') {
+        document.getElementById('txtSuhu').innerText = num.toFixed(1);
+        document.getElementById('barSuhu').style.width = `${Math.min((num/60)*100, 100)}%`;
+      } else if (type === 'kelembaban') {
+        document.getElementById('txtHum').innerText = num.toFixed(1);
+        document.getElementById('barHum').style.width = `${Math.min(num, 100)}%`;
+      } else if (type === 'co2') {
+        document.getElementById('txtCO2').innerText = Math.round(num);
+        document.getElementById('barCO2').style.width = `${Math.min((num/5000)*100, 100)}%`;
+      } else if (type === 'o2') {
+        document.getElementById('txtO2').innerText = num.toFixed(1);
+        document.getElementById('barO2').style.width = `${Math.min((num/25)*100, 100)}%`;
+      }
+    }
+
+    function connectMQTT() {
+      const host = document.getElementById('cfgHost').value.trim();
+      const port = document.getElementById('cfgPort').value.trim();
+      
+      const statusDot = document.getElementById('statusDot');
+      const connLabel = document.getElementById('connLabel');
+
+      statusDot.className = "status-dot";
+      connLabel.innerText = "Connecting...";
+
+      if (client) {
+        client.end();
+      }
+
+      const options = {
+        connectTimeout: 4000,
+        clientId: 'web_cas_' + Math.random().toString(16).substr(2, 8),
+        path: '/mqtt'
+      };
+
+      // Membuka jalur WebSocket ke VPS kamu
+      client = mqtt.connect(`ws://${host}:${port}`, options);
+
+      client.on('connect', () => {
+        statusDot.className = "status-dot online";
+        connLabel.innerText = "VPS Online";
+        connLabel.style.color = "#10b981";
+
+        Object.values(topics).forEach(t => client.subscribe(t));
+      });
+
+      client.on('message', (topic, message) => {
+        const data = message.toString();
+        if (topic === topics.suhu) updateView('suhu', data);
+        if (topic === topics.kelembaban) updateView('kelembaban', data);
+        if (topic === topics.co2) updateView('co2', data);
+        if (topic === topics.o2) updateView('o2', data);
+      });
+
+      client.on('close', () => {
+        statusDot.className = "status-dot offline";
+        connLabel.innerText = "Offline";
+        connLabel.style.color = "#ef4444";
+      });
+    }
+
+    // Eksekusi koneksi otomatis saat halaman web dimuat
+    window.onload = () => {
+      setTimeout(connectMQTT, 1000);
+    };
+  </script>
+</body>
+</html>
 .config-card h3{font-size:12px;font-weight:600;color:#888;letter-spacing:.5px;margin-bottom:14px;}
 .cfg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;}
 .cfg-group label{display:block;font-size:11px;color:#aaa;font-weight:600;margin-bottom:4px;}
