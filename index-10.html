@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Monitoring CAS</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{font-family:'Inter',sans-serif;background:#f0f4f8;color:#1a1a2e;min-height:100%}
+
+header{
+  background:#fff;padding:0 20px;height:56px;
+  display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid #e8eaed;position:sticky;top:0;z-index:100;
+  box-shadow:0 1px 3px rgba(0,0,0,.06);
+}
+.hdr-left{display:flex;align-items:center;gap:10px;}
+header h1{font-size:17px;font-weight:700;color:#111;letter-spacing:.3px;}
+.sdot{width:9px;height:9px;border-radius:50%;background:#ccc;transition:.3s;}
+.sdot.online{background:#4caf50;}
+.sdot.connecting{background:#ff9800;animation:blink .8s step-end infinite;}
+@keyframes blink{50%{opacity:0}}
+.hdr-right{display:flex;align-items:center;gap:8px;}
+.conn-lbl{font-size:12px;color:#888;font-weight:500;}
+.icon-btn{width:36px;height:36px;display:grid;place-items:center;border-radius:8px;cursor:pointer;color:#555;font-size:17px;}
+.icon-btn:hover{background:#f0f2f5;}
+
+main{padding:14px;max-width:960px;margin:0 auto;}
+
+/* CONFIG MODAL */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:200;align-items:center;justify-content:center;}
+.modal-overlay.show{display:flex;}
+.modal-box{background:#fff;border-radius:16px;padding:22px 24px;width:90%;max-width:480px;box-shadow:0 8px 32px rgba(0,0,0,.15);}
+.modal-box h3{font-size:15px;font-weight:700;color:#111;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+.modal-close{margin-left:auto;cursor:pointer;font-size:20px;color:#999;line-height:1;background:none;border:none;}
+.cfg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px;}
+.cfg-g label{display:block;font-size:11px;color:#999;font-weight:600;margin-bottom:3px;letter-spacing:.4px;}
+.cfg-g input{width:100%;border:1.5px solid #e8eaed;border-radius:8px;padding:7px 10px;font-size:13px;outline:none;transition:.2s;background:#fafafa;color:#111;font-family:'Inter',sans-serif;}
+.cfg-g input:focus{border-color:#2979ff;background:#fff;}
+.cfg-acts{display:flex;gap:8px;}
+.btn{padding:8px 18px;border-radius:8px;border:none;cursor:pointer;font-family:'Inter',sans-serif;font-size:13px;font-weight:600;transition:.15s;}
+.btn-blue{background:#2979ff;color:#fff;}.btn-blue:hover{background:#1565c0;}
+.btn-red{background:#fff;border:1.5px solid #ef5350;color:#ef5350;}.btn-red:hover{background:#fef2f2;}
+.btn-dl{background:#fff;border:1.5px solid #43a047;color:#43a047;font-size:12px;padding:6px 14px;}.btn-dl:hover{background:#f1f8e9;}
+
+/* ALERT */
+.alert{display:none;background:#fff3e0;border:1px solid #ffcc02;border-radius:10px;padding:9px 14px;margin-bottom:12px;font-size:12px;color:#e65100;font-weight:500;align-items:center;gap:8px;}
+.alert.show{display:flex;}
+
+/* GAUGES */
+.gauges{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:12px;}
+@media(min-width:620px){.gauges{grid-template-columns:repeat(4,1fr);}}
+.g-card{background:#fff;border-radius:16px;padding:18px 12px 14px;box-shadow:0 1px 4px rgba(0,0,0,.07);display:flex;flex-direction:column;align-items:center;gap:6px;transition:box-shadow .2s;}
+.g-card:hover{box-shadow:0 4px 14px rgba(0,0,0,.1);}
+.g-title{font-size:12px;color:#999;font-weight:600;letter-spacing:.5px;}
+.g-wrap{position:relative;width:130px;height:80px;}
+.g-wrap svg{width:100%;height:100%;}
+.g-center{position:absolute;bottom:0;left:0;right:0;display:flex;flex-direction:column;align-items:center;line-height:1;}
+.g-val{font-size:26px;font-weight:700;color:#2979ff;}
+.g-unit{font-size:11px;color:#bbb;font-weight:500;margin-top:2px;}
+.arc-bg{fill:none;stroke:#eef0f3;stroke-width:9;stroke-linecap:round;}
+.arc-fg{fill:none;stroke-width:9;stroke-linecap:round;transition:stroke-dashoffset .7s cubic-bezier(.4,0,.2,1),stroke .4s;}
+.g-range{display:flex;justify-content:space-between;width:130px;font-size:10px;color:#ccc;font-weight:500;}
+.g-pill{font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;letter-spacing:.3px;}
+.pill-ok{background:#e8f5e9;color:#2e7d32;}
+.pill-warn{background:#fff8e1;color:#f57c00;}
+.pill-danger{background:#fce4ec;color:#c62828;}
+
+/* CHARTS */
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}
+@media(max-width:620px){.charts{grid-template-columns:1fr;}}
+.ch-card{background:#fff;border-radius:16px;padding:16px 18px;box-shadow:0 1px 4px rgba(0,0,0,.07);}
+.ch-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.ch-hdr h3{font-size:13px;font-weight:700;color:#222;}
+.ch-legend{display:flex;align-items:center;gap:5px;font-size:11px;color:#999;}
+.ldot{width:8px;height:8px;border-radius:50%;display:inline-block;}
+.ch-wrap{position:relative;height:130px;}
+.dl-row{display:flex;gap:6px;margin-top:10px;}
+
+/* STATS BAR */
+.stats-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;}
+@media(max-width:620px){.stats-bar{grid-template-columns:repeat(2,1fr);}}
+.stat-card{background:#fff;border-radius:12px;padding:12px 14px;box-shadow:0 1px 4px rgba(0,0,0,.07);}
+.stat-label{font-size:10px;color:#999;font-weight:600;letter-spacing:.5px;margin-bottom:4px;}
+.stat-row{display:flex;gap:8px;font-size:11px;}
+.stat-item{flex:1;text-align:center;}
+.stat-item span{display:block;font-size:13px;font-weight:700;color:#333;}
+.stat-item small{font-size:10px;color:#aaa;}
+
+footer{text-align:center;padding:16px;font-size:11px;color:#bbb;letter-spacing:.5px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hdr-left">
+    <a class="icon-btn" href="#" style="font-size:20px;text-decoration:none;">&#8592;</a>
+    <h1>Monitoring CAS</h1>
+    <div class="sdot" id="sdot"></div>
+  </div>
+  <div class="hdr-right">
+    <span class="conn-lbl" id="connLbl">Offline</span>
+    <div class="icon-btn" onclick="document.getElementById('cfgModal').classList.add('show')" title="Pengaturan">⚙️</div>
+  </div>
+</header>
+
+<!-- CONFIG MODAL -->
+<div class="modal-overlay" id="cfgModal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="modal-box">
+    <h3>⚙️ Konfigurasi MQTT <button class="modal-close" onclick="document.getElementById('cfgModal').classList.remove('show')">×</button></h3>
+    <div class="cfg-grid">
+      <div class="cfg-g"><label>BROKER HOST</label><input id="cfgHost" value="202.155.90.225"/></div>
+      <div class="cfg-g"><label>PORT</label><input id="cfgPort" value="8884"/></div>
+      <div class="cfg-g"><label>PATH</label><input id="cfgPath" value="/mqtt"/></div>
+      <div class="cfg-g"><label>USERNAME</label><input id="cfgUser" value=""/></div>
+      <div class="cfg-g"><label>PASSWORD</label><input id="cfgPass" value="" type="password"/></div>
+    </div>
+    <div class="cfg-acts">
+      <button class="btn btn-blue" onclick="connectMQTT();document.getElementById('cfgModal').classList.remove('show')">Hubungkan</button>
+      <button class="btn btn-red" id="btnDisc" onclick="disconnectMQTT()" style="display:none">Putuskan</button>
+    </div>
+  </div>
+</div>
+
+<main>
+
+  <!-- ALERT -->
+  <div class="alert" id="alertBanner">⚠️ <span id="alertMsg"></span></div>
+
+  <!-- GAUGES -->
+  <div class="gauges">
+    <div class="g-card">
+      <div class="g-title">SUHU</div>
+      <div class="g-wrap">
+        <svg viewBox="0 0 160 90"><path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+        <path class="arc-fg" id="arcS" d="M18,82 A62,62 0 0,1 142,82" style="stroke:#ff7043;stroke-dasharray:194.8;stroke-dashoffset:194.8"/></svg>
+        <div class="g-center"><div class="g-val" id="vS" style="color:#ff7043">--</div><div class="g-unit">°C</div></div>
+      </div>
+      <div class="g-range"><span>0</span><span>50</span></div>
+      <div class="g-pill pill-ok" id="pS">Normal</div>
+    </div>
+    <div class="g-card">
+      <div class="g-title">KELEMBAPAN</div>
+      <div class="g-wrap">
+        <svg viewBox="0 0 160 90"><path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+        <path class="arc-fg" id="arcH" d="M18,82 A62,62 0 0,1 142,82" style="stroke:#29b6f6;stroke-dasharray:194.8;stroke-dashoffset:194.8"/></svg>
+        <div class="g-center"><div class="g-val" id="vH" style="color:#29b6f6">--</div><div class="g-unit">%</div></div>
+      </div>
+      <div class="g-range"><span>0</span><span>100</span></div>
+      <div class="g-pill pill-ok" id="pH">Normal</div>
+    </div>
+    <div class="g-card">
+      <div class="g-title">CO₂</div>
+      <div class="g-wrap">
+        <svg viewBox="0 0 160 90"><path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+        <path class="arc-fg" id="arcC" d="M18,82 A62,62 0 0,1 142,82" style="stroke:#ab47bc;stroke-dasharray:194.8;stroke-dashoffset:194.8"/></svg>
+        <div class="g-center"><div class="g-val" id="vC" style="color:#ab47bc;font-size:20px">--</div><div class="g-unit">ppm</div></div>
+      </div>
+      <div class="g-range"><span>0</span><span>100k</span></div>
+      <div class="g-pill pill-ok" id="pC">Normal</div>
+    </div>
+    <div class="g-card">
+      <div class="g-title">O₂</div>
+      <div class="g-wrap">
+        <svg viewBox="0 0 160 90"><path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+        <path class="arc-fg" id="arcO" d="M18,82 A62,62 0 0,1 142,82" style="stroke:#26a69a;stroke-dasharray:194.8;stroke-dashoffset:194.8"/></svg>
+        <div class="g-center"><div class="g-val" id="vO" style="color:#26a69a">--</div><div class="g-unit">%</div></div>
+      </div>
+      <div class="g-range"><span>0</span><span>25</span></div>
+      <div class="g-pill pill-ok" id="pO">Normal</div>
+    </div>
+  </div>
+
+  <!-- STATS MIN/MAX/AVG -->
+  <div class="stats-bar">
+    <div class="stat-card">
+      <div class="stat-label">SUHU (°C)</div>
+      <div class="stat-row">
+        <div class="stat-item"><span id="sMin">--</span><small>Min</small></div>
+        <div class="stat-item"><span id="sMax">--</span><small>Max</small></div>
+        <div class="stat-item"><span id="sAvg">--</span><small>Rata</small></div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">KELEMBAPAN (%)</div>
+      <div class="stat-row">
+        <div class="stat-item"><span id="hMin">--</span><small>Min</small></div>
+        <div class="stat-item"><span id="hMax">--</span><small>Max</small></div>
+        <div class="stat-item"><span id="hAvg">--</span><small>Rata</small></div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">CO₂ (% vol)</div>
+      <div class="stat-row">
+        <div class="stat-item"><span id="cMin">--</span><small>Min</small></div>
+        <div class="stat-item"><span id="cMax">--</span><small>Max</small></div>
+        <div class="stat-item"><span id="cAvg">--</span><small>Rata</small></div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">O₂ (%)</div>
+      <div class="stat-row">
+        <div class="stat-item"><span id="oMin">--</span><small>Min</small></div>
+        <div class="stat-item"><span id="oMax">--</span><small>Max</small></div>
+        <div class="stat-item"><span id="oAvg">--</span><small>Rata</small></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHARTS -->
+  <div class="charts">
+    <div class="ch-card">
+      <div class="ch-hdr">
+        <h3>Suhu</h3>
+        <div class="ch-legend"><span class="ldot" style="background:#ff7043"></span>°C</div>
+      </div>
+      <div class="ch-wrap"><canvas id="chS"></canvas></div>
+      <div class="dl-row">
+        <button class="btn btn-dl" onclick="dlCSV('suhu')">⬇ CSV</button>
+        <button class="btn btn-dl" onclick="dlPDF('suhu')">⬇ PDF</button>
+      </div>
+    </div>
+    <div class="ch-card">
+      <div class="ch-hdr">
+        <h3>Kelembapan</h3>
+        <div class="ch-legend"><span class="ldot" style="background:#29b6f6"></span>%</div>
+      </div>
+      <div class="ch-wrap"><canvas id="chH"></canvas></div>
+      <div class="dl-row">
+        <button class="btn btn-dl" onclick="dlCSV('hum')">⬇ CSV</button>
+        <button class="btn btn-dl" onclick="dlPDF('hum')">⬇ PDF</button>
+      </div>
+    </div>
+    <div class="ch-card">
+      <div class="ch-hdr">
+        <h3>CO₂</h3>
+        <div class="ch-legend"><span class="ldot" style="background:#ab47bc"></span>% vol</div>
+      </div>
+      <div class="ch-wrap"><canvas id="chC"></canvas></div>
+      <div class="dl-row">
+        <button class="btn btn-dl" onclick="dlCSV('co2')">⬇ CSV</button>
+        <button class="btn btn-dl" onclick="dlPDF('co2')">⬇ PDF</button>
+      </div>
+    </div>
+    <div class="ch-card">
+      <div class="ch-hdr">
+        <h3>O₂</h3>
+        <div class="ch-legend"><span class="ldot" style="background:#26a69a"></span>%</div>
+      </div>
+      <div class="ch-wrap"><canvas id="chO"></canvas></div>
+      <div class="dl-row">
+        <button class="btn btn-dl" onclick="dlCSV('o2')">⬇ CSV</button>
+        <button class="btn btn-dl" onclick="dlPDF('o2')">⬇ PDF</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+<footer>Monitoring CAS &nbsp;|&nbsp; MQTT Dashboard &nbsp;|&nbsp; http://202.155.90.225</footer>
+
+<script>
+// ── STATE ──
+const ARC=194.8, MAX=60;
+let mqttClient=null;
+let buf={s:null,h:null,c:null,o:null};
+let history={s:[],h:[],c:[],o:[],t:[]};
+
+// ── CHARTS ──
+Chart.defaults.color='#bbb';Chart.defaults.borderColor='#f0f2f5';
+function mkChart(id,color,label,yMin,yMax,unit){
+  return new Chart(document.getElementById(id),{
+    type:'line',
+    data:{labels:[],datasets:[{label,data:[],borderColor:color,backgroundColor:color+'18',borderWidth:2,tension:.4,pointRadius:0,fill:true}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{maxRotation:0,maxTicksLimit:6,font:{size:9}},grid:{display:false}},
+        y:{min:yMin,max:yMax,ticks:{font:{size:9},callback:v=>v+unit},grid:{color:'#f5f7fa'}}
+      }}
+  });
+}
+const chS=mkChart('chS','#ff7043','Suhu',0,50,'°C');
+const chH=mkChart('chH','#29b6f6','Hum',0,100,'%');
+const chC=mkChart('chC','#ab47bc','CO₂',0,10,'%');
+const chO=mkChart('chO','#26a69a','O₂',0,25,'%');
+
+// ── GAUGE ──
+function setArc(id,val,min,max){
+  const r=Math.min(Math.max((val-min)/(max-min),0),1);
+  document.getElementById(id).style.strokeDashoffset=ARC*(1-r);
+}
+function setPill(id,val,okL,okH,wL,wH){
+  const el=document.getElementById(id);
+  if(val>=okL&&val<=okH){el.textContent='Normal';el.className='g-pill pill-ok';}
+  else if(val>=wL&&val<=wH){el.textContent='Peringatan';el.className='g-pill pill-warn';}
+  else{el.textContent='Bahaya';el.className='g-pill pill-danger';}
+}
+
+// ── STATS ──
+function updateStats(){
+  const calc=(arr,pfx)=>{
+    if(!arr.length)return;
+    const mn=Math.min(...arr),mx=Math.max(...arr),av=arr.reduce((a,b)=>a+b,0)/arr.length;
+    document.getElementById(pfx+'Min').textContent=mn.toFixed(1);
+    document.getElementById(pfx+'Max').textContent=mx.toFixed(1);
+    document.getElementById(pfx+'Avg').textContent=av.toFixed(1);
+  };
+  calc(history.s,'s');calc(history.h,'h');
+  calc(history.c,'c');calc(history.o,'o');
+}
+
+// ── ALERT ──
+function checkAlert(s,h,c,o){
+  const m=[];
+  if(s>40)m.push('Suhu tinggi '+s+'°C');
+  if(h<20)m.push('Kelembapan rendah '+h+'%');
+  if(c>8)m.push('CO₂ berbahaya '+c+'% vol');
+  if(o<18)m.push('O₂ rendah '+o+'%');
+  const b=document.getElementById('alertBanner');
+  if(m.length){document.getElementById('alertMsg').textContent=m.join(' • ');b.classList.add('show');}
+  else b.classList.remove('show');
+}
+
+// ── PUSH CHART ──
+function pushChart(ch,val,lbl){
+  ch.data.labels.push(lbl);
+  ch.data.datasets[0].data.push(val);
+  if(ch.data.labels.length>MAX){ch.data.labels.shift();ch.data.datasets[0].data.shift();}
+  ch.update('none');
+}
+
+// ── ON MESSAGE ──
+function onMsg(topic,val){
+  const v=parseFloat(val);if(isNaN(v))return;
+  if(topic.includes('Suhu'))      buf.s=v;
+  else if(topic.includes('Kelembapan')) buf.h=v;
+  else if(topic.includes('CO2'))  buf.c=v;
+  else if(topic.includes('O2'))   buf.o=v;
+  const{s,h,c,o}=buf;
+  if(s===null||h===null||c===null||o===null)return;
+
+  const t=new Date().toLocaleTimeString('id-ID',{hour12:false});
+  // ESP32 kirim % vol → kalikan 10000 untuk dapat ppm asli
+  const ppm=Math.round(c*10000);
+  const cpct=parseFloat(c);
+
+  // gauges — CO2 tampil ppm bulat persis seperti serial monitor
+  document.getElementById('vS').textContent=s.toFixed(1);
+  document.getElementById('vH').textContent=h.toFixed(1);
+  document.getElementById('vC').textContent=ppm; // bulat, tanpa koma, tanpa separator
+  document.getElementById('vO').textContent=o.toFixed(1);
+  setArc('arcS',s,0,50);
+  setArc('arcH',h,0,100);
+  setArc('arcC',ppm,0,100000);
+  setArc('arcO',o,0,25);
+  setPill('pS',s,10,35,5,40);
+  setPill('pH',h,40,80,20,90);
+  setPill('pC',cpct,0,5,5,8);
+  setPill('pO',o,19.5,23,18,19.5);
+  checkAlert(s,h,cpct,o);
+
+  // charts — CO2 dalam % vol
+  pushChart(chS,s,t);pushChart(chH,h,t);
+  pushChart(chC,cpct,t);pushChart(chO,o,t);
+
+  // history
+  history.s.push(s);history.h.push(h);
+  history.c.push(cpct);history.o.push(o);
+  history.t.push(t);
+  if(history.t.length>MAX){
+    ['s','h','c','o','t'].forEach(k=>history[k].shift());
+  }
+  updateStats();
+  buf={s:null,h:null,c:null,o:null};
+}
+
+// ── DOWNLOAD CSV ──
+function dlCSV(type){
+  const map={suhu:{d:history.s,u:'°C'},hum:{d:history.h,u:'%'},co2:{d:history.c,u:'% vol'},o2:{d:history.o,u:'%'}};
+  const m=map[type];
+  let csv='Waktu,Nilai ('+m.u+')\n';
+  history.t.forEach((t,i)=>csv+=t+','+m.d[i]+'\n');
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download='cas_'+type+'_'+new Date().toISOString().slice(0,10)+'.csv';
+  a.click();
+}
+
+// ── DOWNLOAD PDF ──
+function dlPDF(type){
+  const map={suhu:{d:history.s,u:'°C',label:'Suhu'},hum:{d:history.h,u:'%',label:'Kelembapan'},co2:{d:history.c,u:'% vol',label:'CO₂'},o2:{d:history.o,u:'%',label:'O₂'}};
+  const m=map[type];
+  let rows='';
+  history.t.forEach((t,i)=>{rows+=`<tr><td>${t}</td><td>${m.d[i]} ${m.u}</td></tr>`;});
+  const html=`<html><head><title>CAS ${m.label}</title>
+  <style>body{font-family:Arial,sans-serif;padding:20px}h2{color:#333}
+  table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:left}
+  th{background:#f5f5f5;font-weight:600}tr:nth-child(even){background:#fafafa}</style></head>
+  <body><h2>Monitoring CAS — ${m.label}</h2>
+  <p>Diekspor: ${new Date().toLocaleString('id-ID')}</p>
+  <table><thead><tr><th>Waktu</th><th>Nilai</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+  const w=window.open('','_blank');
+  w.document.write(html);w.document.close();w.print();
+}
+
+// ── STATUS UI ──
+function setStatus(st){
+  document.getElementById('sdot').className='sdot '+st;
+  document.getElementById('connLbl').textContent=st==='online'?'Online':st==='connecting'?'Menghubungkan...':'Offline';
+}
+
+// ── MQTT ──
+function connectMQTT(){
+  const host=document.getElementById('cfgHost').value.trim();
+  const port=parseInt(document.getElementById('cfgPort').value)||8884;
+  const path=document.getElementById('cfgPath').value.trim()||'/mqtt';
+  const user=document.getElementById('cfgUser').value.trim();
+  const pass=document.getElementById('cfgPass').value;
+  if(mqttClient){try{mqttClient.end(true);}catch(e){}mqttClient=null;}
+
+  const url='ws://'+host+':'+port+path;
+  console.log('[MQTT] Connecting:',url);
+
+  const opts={
+    clientId:'cas_'+Math.random().toString(16).substr(2,8),
+    clean:true,
+    reconnectPeriod:5000,
+    connectTimeout:15000,
+    keepalive:60
+  };
+  if(user)opts.username=user;
+  if(pass)opts.password=pass;
+
+  setStatus('connecting');
+  try{ mqttClient=mqtt.connect(url,opts); }
+  catch(e){ console.error('[MQTT]',e); setStatus('offline'); return; }
+
+  mqttClient.on('connect',()=>{
+    console.log('[MQTT] Connected!');
+    setStatus('online');
+    document.getElementById('cfgModal').classList.remove('show');
+    document.getElementById('btnDisc').style.display='';
+    ['Suhu CAS','Kelembapan CAS','CO2 CAS','O2 CAS'].forEach(t=>{
+      mqttClient.subscribe(t,{qos:0});
+      console.log('[MQTT] Sub:',t);
+    });
+  });
+  mqttClient.on('message',(topic,payload)=>{
+    console.log('[MQTT]',topic,payload.toString());
+    onMsg(topic,payload.toString());
+  });
+  mqttClient.on('error',(e)=>{ console.error('[MQTT] Err:',e); setStatus('offline'); });
+  mqttClient.on('close',()=>{ setStatus('offline'); document.getElementById('btnDisc').style.display='none'; });
+  mqttClient.on('reconnect',()=>setStatus('connecting'));
+}
+function disconnectMQTT(){
+  if(mqttClient){mqttClient.end(true);mqttClient=null;}
+  setStatus('offline');document.getElementById('btnDisc').style.display='none';
+}
+window.addEventListener('load',()=>{
+  setTimeout(()=>{ if(typeof mqtt!=='undefined') connectMQTT(); else setTimeout(connectMQTT,2000); },1500);
+});
+</script>
+</body>
+</html>
