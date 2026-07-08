@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Monitoring CAS</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{font-family:'Inter',sans-serif;background:#f0f4f8;color:#1a1a2e;min-height:100%}
+
+header{
+  background:#fff;padding:0 20px;height:56px;
+  display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid #e8eaed;position:sticky;top:0;z-index:100;
+  box-shadow:0 1px 3px rgba(0,0,0,.06);
+}
+.hdr-left{display:flex;align-items:center;gap:10px;}
+header h1{font-size:17px;font-weight:700;color:#111;letter-spacing:.3px;}
+.sdot{width:9px;height:9px;border-radius:50%;background:#ccc;transition:.3s;}
+.sdot.online{background:#4caf50;}
+.sdot.connecting{background:#ff9800;animation:blink .8s step-end infinite;}
+@keyframes blink{50%{opacity:0}}
+.hdr-right{display:flex;align-items:center;gap:8px;}
+.conn-lbl{font-size:12px;color:#888;font-weight:500;}
+.icon-btn{width:36px;height:36px;display:grid;place-items:center;border-radius:8px;cursor:pointer;color:#555;font-size:17px;}
+.icon-btn:hover{background:#f0f2f5;}
+
+main{padding:14px 14px 56px;max-width:1060px;margin:0 auto;}
+
+/* CONFIG MODAL */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:200;align-items:center;justify-content:center;}
+.modal-overlay.show{display:flex;}
+.modal-box{background:#fff;border-radius:16px;padding:22px 24px;width:90%;max-width:480px;box-shadow:0 8px 32px rgba(0,0,0,.15);}
+.modal-box h3{font-size:15px;font-weight:700;color:#111;margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+.modal-close{margin-left:auto;cursor:pointer;font-size:20px;color:#999;line-height:1;background:none;border:none;}
+.cfg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:14px;}
+.cfg-g label{display:block;font-size:11px;color:#999;font-weight:600;margin-bottom:3px;letter-spacing:.4px;}
+.cfg-g input{width:100%;border:1.5px solid #e8eaed;border-radius:8px;padding:7px 10px;font-size:13px;outline:none;transition:.2s;background:#fafafa;color:#111;font-family:'Inter',sans-serif;}
+.cfg-g input:focus{border-color:#2979ff;background:#fff;}
+.cfg-acts{display:flex;gap:8px;}
+.btn{padding:8px 18px;border-radius:8px;border:none;cursor:pointer;font-family:'Inter',sans-serif;font-size:13px;font-weight:600;transition:.15s;}
+.btn-blue{background:#2979ff;color:#fff;}.btn-blue:hover{background:#1565c0;}
+.btn-red{background:#fff;border:1.5px solid #ef5350;color:#ef5350;}.btn-red:hover{background:#fef2f2;}
+.btn-dl{background:#fff;border:1.5px solid #43a047;color:#43a047;font-size:12px;padding:6px 14px;}.btn-dl:hover{background:#f1f8e9;}
+
+/* ALERT */
+
+
+/* SECTION */
+.section-title{display:flex;align-items:center;gap:8px;margin:18px 0 10px;}
+.section-title:first-of-type{margin-top:4px;}
+.section-title h2{font-size:15px;font-weight:800;color:#111;letter-spacing:.4px;}
+.section-tag{font-size:10px;font-weight:700;color:#777;background:#fff;border:1px solid #e8eaed;border-radius:20px;padding:4px 9px;}
+
+/* GAUGES */
+.gauges{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:12px;}
+@media(min-width:620px){.gauges{grid-template-columns:repeat(4,1fr);}}
+.gauges.gauges-5{grid-template-columns:repeat(2,1fr);}
+@media(min-width:620px){.gauges.gauges-5{grid-template-columns:repeat(5,1fr);}}
+.g-card.press-card .g-val{font-size:22px;}
+.press-sign{font-weight:700;margin-right:2px;}
+.press-pos{color:#ef5350;}
+.press-neg{color:#42a5f5;}
+
+.g-card{background:#fff;border-radius:16px;padding:18px 12px 14px;box-shadow:0 1px 4px rgba(0,0,0,.07);display:flex;flex-direction:column;align-items:center;gap:6px;transition:box-shadow .2s;}
+.g-card:hover{box-shadow:0 4px 14px rgba(0,0,0,.1);}
+.g-title{font-size:12px;color:#999;font-weight:600;letter-spacing:.5px;text-align:center;}
+.g-wrap{position:relative;width:130px;height:80px;}
+.g-wrap svg{width:100%;height:100%;}
+.g-center{position:absolute;bottom:0;left:0;right:0;display:flex;flex-direction:column;align-items:center;line-height:1;}
+.g-val{font-size:26px;font-weight:700;color:#2979ff;}
+.g-unit{font-size:11px;color:#bbb;font-weight:500;margin-top:2px;}
+.arc-bg{fill:none;stroke:#eef0f3;stroke-width:9;stroke-linecap:round;}
+.arc-fg{fill:none;stroke-width:9;stroke-linecap:round;transition:stroke-dashoffset .7s cubic-bezier(.4,0,.2,1),stroke .4s;}
+.g-range{display:flex;justify-content:space-between;width:130px;font-size:10px;color:#ccc;font-weight:500;}
+.g-unit{font-size:11px;color:var(--muted);margin-top:2px;}
+
+/* CHARTS */
+.charts{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;}
+@media(max-width:620px){.charts{grid-template-columns:1fr;}}
+.ch-card{background:#fff;border-radius:16px;padding:16px 18px;box-shadow:0 1px 4px rgba(0,0,0,.07);}
+.ch-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.ch-hdr h3{font-size:13px;font-weight:700;color:#222;}
+.ch-legend{display:flex;align-items:center;gap:5px;font-size:11px;color:#999;}
+.ldot{width:8px;height:8px;border-radius:50%;display:inline-block;}
+.ch-wrap{position:relative;height:130px;}
+.dl-row{display:flex;gap:6px;margin-top:10px;}
+.btn-sv{background:#fff;border:1.5px solid #2563eb;color:#2563eb;font-size:12px;padding:6px 14px;border-radius:8px;cursor:pointer;font-weight:600;}.btn-sv:hover{background:#eff6ff;}
+
+/* STATS BAR */
+.stats-bar{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px;}
+@media(max-width:620px){.stats-bar{grid-template-columns:repeat(2,1fr);}}
+.stat-card{background:#fff;border-radius:12px;padding:12px 14px;box-shadow:0 1px 4px rgba(0,0,0,.07);}
+.stat-label{font-size:10px;color:#999;font-weight:600;letter-spacing:.5px;margin-bottom:4px;}
+.stat-row{display:flex;gap:8px;font-size:11px;}
+.stat-item{flex:1;text-align:center;}
+.stat-item span{display:block;font-size:13px;font-weight:700;color:#333;}
+.stat-item small{font-size:10px;color:#aaa;}
+
+/* COMPARISON */
+.compare-wrap{background:#fff;border-radius:18px;padding:16px 18px;margin:16px 0;box-shadow:0 1px 4px rgba(0,0,0,.07);}
+.compare-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:10px;}
+.compare-head h2{font-size:15px;font-weight:800;color:#111;}
+.compare-head small{font-size:11px;color:#999;text-align:right;}
+.compare-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;}
+@media(max-width:760px){.compare-grid{grid-template-columns:repeat(2,1fr);}}
+.cmp-card{border:1px solid #eef0f3;border-radius:14px;padding:12px;background:#fafbfd;}
+.cmp-title{font-size:10px;color:#999;font-weight:700;letter-spacing:.5px;margin-bottom:8px;}
+.cmp-row{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#888;margin:4px 0;}
+.cmp-row span:last-child{font-weight:800;color:#222;}
+.cmp-diff{margin-top:8px;padding-top:8px;border-top:1px dashed #e1e5ea;font-size:11px;color:#777;display:flex;justify-content:space-between;}
+.cmp-diff b{color:#2979ff;}
+
+footer{text-align:center;padding:16px;font-size:11px;color:#bbb;letter-spacing:.5px;}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hdr-left">
+    <a class="icon-btn" href="#" style="font-size:20px;text-decoration:none;">&#8592;</a>
+    <h1>Monitoring CAS</h1>
+    <div class="sdot" id="sdot"></div>
+  </div>
+  <div class="hdr-right">
+    <span class="conn-lbl" id="connLbl">Offline</span>
+    <div class="icon-btn" onclick="document.getElementById('cfgModal').classList.add('show')" title="Pengaturan">⚙️</div>
+  </div>
+</header>
+
+<!-- CONFIG MODAL -->
+<div class="modal-overlay" id="cfgModal" onclick="if(event.target===this)this.classList.remove('show')">
+  <div class="modal-box">
+    <h3>⚙️ Konfigurasi MQTT <button class="modal-close" onclick="document.getElementById('cfgModal').classList.remove('show')">×</button></h3>
+    <div class="cfg-grid">
+      <div class="cfg-g"><label>BROKER HOST</label><input id="cfgHost" value="monitoring-cas.ddns.net"/></div>
+      <div class="cfg-g"><label>PORT</label><input id="cfgPort" value="8883"/></div>
+      <div class="cfg-g"><label>PATH</label><input id="cfgPath" value="/mqtt"/></div>
+      <div class="cfg-g"><label>USERNAME</label><input id="cfgUser" value=""/></div>
+      <div class="cfg-g"><label>PASSWORD</label><input id="cfgPass" value="" type="password"/></div>
+    </div>
+    <div class="cfg-acts">
+      <button class="btn btn-blue" onclick="connectMQTT();document.getElementById('cfgModal').classList.remove('show')">Hubungkan</button>
+      <button class="btn btn-red" id="btnDisc" onclick="disconnectMQTT()" style="display:none">Putuskan</button>
+    </div>
+
+    <!-- DIVIDER -->
+    <div style="border-top:1px solid #e4e8ee;margin:16px 0;"></div>
+
+    <!-- DATA MANAGEMENT -->
+    <div style="font-size:11px;font-weight:700;color:#7a8898;letter-spacing:.5px;margin-bottom:10px;">
+      📊 MANAJEMEN DATA
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;
+      background:#f8fafc;border-radius:10px;padding:10px 14px;margin-bottom:10px;">
+      <div>
+        <div style="font-size:12px;font-weight:600;color:#1a2332;">History Tersimpan</div>
+        <div style="font-size:11px;color:#7a8898;margin-top:2px;" id="modalStorageInfo">--</div>
+      </div>
+      <button onclick="clearHistoryFromModal()" style="
+        background:#fff;color:#ef4444;border:1.5px solid #ef4444;
+        border-radius:8px;padding:6px 14px;font-size:11px;
+        font-weight:700;cursor:pointer;white-space:nowrap;
+      ">🗑 Hapus History</button>
+    </div>
+    <div style="font-size:10px;color:#94a3b8;line-height:1.5;">
+      ⚠️ Menghapus history akan mengosongkan seluruh grafik dan data statistik di sesi ini.
+      Data yang sudah didownload (CSV/PDF) tidak terpengaruh.
+    </div>
+  </div>
+</div>
+
+<main>
+
+  <!-- ALERT -->
+  
+  <!-- CHAMBER UTAMA -->
+  <div class="section-title">
+    <h2>Chamber Utama</h2>
+    <span class="section-tag">ESP32 1</span>
+  </div>
+
+  <!-- GAUGES UTAMA -->
+  <div class="gauges gauges-5">
+    <div class="g-card">
+      <div class="g-title">SUHU UTAMA</div>
+      <div class="g-wrap">
+        <svg viewBox="0 0 160 90"><path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+        <path class="arc-fg" id="uArcS" d="M18,82 A62,62 0 0,1 142,82" style="stroke:#ff7043;stroke-dasharray:194.8;stroke-dashoffset:194.8"/></svg>
+        <div class="g-center"><div class="g-val" id="uVS" style="color:#ff7043">--</div><div class="g-unit">°C</div></div>
+      </div>
+      <div class="g-range"><span>0</span><span>50</span></div>
+      
+    </div>
+    <div class="g-card">
+      <div class="g-title">KELEMBAPAN UTAMA</div>
+      <div class="g-wrap">
+        <svg viewBox="0 0 160 90"><path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+        <path class="arc-fg" id="uArcH" d="M18,82 A62,62 0 0,1 142,82" style="stroke:#29b6f6;stroke-dasharray:194.8;stroke-dashoffset:194.8"/></svg>
+        <div class="g-center"><div class="g-val" id="uVH" style="color:#29b6f6">--</div><div class="g-unit">%</div></div>
+      </div>
+      <div class="g-range"><span>0</span><span>100</span></div>
+      
+    </div>
+    <div class="g-card">
+      <div class="g-title">CO₂ UTAMA</div>
+      <div class="g-wrap">
+        <svg viewBox="0 0 160 90"><path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+        <path class="arc-fg" id="uArcC" d="M18,82 A62,62 0 0,1 142,82" style="stroke:#ab47bc;stroke-dasharray:194.8;stroke-dashoffset:194.8"/></svg>
+        <div class="g-center"><div class="g-val" id="uVC" style="color:#ab47bc;font-size:20px">--</div><div class="g-unit">ppm</div></div>
+      </div>
+      <div class="g-range"><span>0</span><span>100k</span></div>
+      
+    </div>
+    <div class="g-card">
+      <div class="g-title">O₂ UTAMA</div>
+      <div class="g-wrap">
+        <svg viewBox="0 0 160 90"><path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+        <path class="arc-fg" id="uArcO" d="M18,82 A62,62 0 0,1 142,82" style="stroke:#26a69a;stroke-dasharray:194.8;stroke-dashoffset:194.8"/></svg>
+        <div class="g-center"><div class="g-val" id="uVO" style="color:#26a69a">--</div><div class="g-unit">%</div></div>
+      </div>
+      <div class="g-range"><span>0</span><span>25</span></div>
+      
+    </div>
+    <div class="g-card press-card">
+      <div class="g-title">DIFF. PRESSURE</div>
+      <div class="g-wrap">
+        <svg viewBox="0 0 160 90"><path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+        <path class="arc-fg" id="uArcP" d="M18,82 A62,62 0 0,1 142,82" style="stroke:#7e57c2;stroke-dasharray:194.8;stroke-dashoffset:97.4"/></svg>
+        <div class="g-center"><div class="g-val" id="uVP" style="color:#7e57c2">--</div><div class="g-unit">Pa (chamber−ambient)</div></div>
+      </div>
+      <div class="g-range"><span>-250</span><span>+250</span></div>
+      
+    </div>
+  </div>
+
+  <!-- STATS UTAMA -->
+  <div class="stats-bar">
+    <div class="stat-card">
+      <div class="stat-label">SUHU UTAMA (°C)</div>
+      <div class="stat-row">
+        <div class="stat-item"><span id="uSMin">--</span><small>Min</small></div>
+        <div class="stat-item"><span id="uSMax">--</span><small>Max</small></div>
+        <div class="stat-item"><span id="uSAvg">--</span><small>Rata</small></div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">KELEMBAPAN UTAMA (%)</div>
+      <div class="stat-row">
+        <div class="stat-item"><span id="uHMin">--</span><small>Min</small></div>
+        <div class="stat-item"><span id="uHMax">--</span><small>Max</small></div>
+        <div class="stat-item"><span id="uHAvg">--</span><small>Rata</small></div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">CO₂ UTAMA (ppm)</div>
+      <div class="stat-row">
+        <div class="stat-item"><span id="uCMin">--</span><small>Min</small></div>
+        <div class="stat-item"><span id="uCMax">--</span><small>Max</small></div>
+        <div class="stat-item"><span id="uCAvg">--</span><small>Rata</small></div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">O₂ UTAMA (%)</div>
+      <div class="stat-row">
+        <div class="stat-item"><span id="uOMin">--</span><small>Min</small></div>
+        <div class="stat-item"><span id="uOMax">--</span><small>Max</small></div>
+        <div class="stat-item"><span id="uOAvg">--</span><small>Rata</small></div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">DIFF. PRESSURE (Pa)</div>
+      <div class="stat-row">
+        <div class="stat-item"><span id="uPMin">--</span><small>Min</small></div>
+        <div class="stat-item"><span id="uPMax">--</span><small>Max</small></div>
+        <div class="stat-item"><span id="uPAvg">--</span><small>Rata</small></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHARTS UTAMA -->
+  <div class="charts">
+    <div class="ch-card">
+      <div class="ch-hdr"><h3>Suhu Utama</h3><div class="ch-legend"><span class="ldot" style="background:#ff7043"></span>°C</div></div>
+      <div class="ch-wrap"><canvas id="uChS"></canvas></div>
+      <div class="dl-row"><button class="btn btn-dl" onclick="dlCSV('u','suhu')">⬇ CSV</button><button class="btn btn-sv" onclick="dlServer('chamber')">⬇ CSV Server</button><button class="btn btn-dl" onclick="dlPDF('u','suhu')">⬇ PDF</button></div>
+    </div>
+    <div class="ch-card">
+      <div class="ch-hdr"><h3>Kelembapan Utama</h3><div class="ch-legend"><span class="ldot" style="background:#29b6f6"></span>%</div></div>
+      <div class="ch-wrap"><canvas id="uChH"></canvas></div>
+      <div class="dl-row"><button class="btn btn-dl" onclick="dlCSV('u','hum')">⬇ CSV</button><button class="btn btn-sv" onclick="dlServer('chamber')">⬇ CSV Server</button><button class="btn btn-dl" onclick="dlPDF('u','hum')">⬇ PDF</button></div>
+    </div>
+    <div class="ch-card">
+      <div class="ch-hdr"><h3>CO₂ Utama</h3><div class="ch-legend"><span class="ldot" style="background:#ab47bc"></span>% vol</div></div>
+      <div class="ch-wrap"><canvas id="uChC"></canvas></div>
+      <div class="dl-row"><button class="btn btn-dl" onclick="dlCSV('u','co2')">⬇ CSV</button><button class="btn btn-sv" onclick="dlServer('chamber')">⬇ CSV Server</button><button class="btn btn-dl" onclick="dlPDF('u','co2')">⬇ PDF</button></div>
+    </div>
+    <div class="ch-card">
+      <div class="ch-hdr"><h3>O₂ Utama</h3><div class="ch-legend"><span class="ldot" style="background:#26a69a"></span>%</div></div>
+      <div class="ch-wrap"><canvas id="uChO"></canvas></div>
+      <div class="dl-row"><button class="btn btn-dl" onclick="dlCSV('u','o2')">⬇ CSV</button><button class="btn btn-sv" onclick="dlServer('chamber')">⬇ CSV Server</button><button class="btn btn-dl" onclick="dlPDF('u','o2')">⬇ PDF</button></div>
+    </div>
+    <div class="ch-card">
+      <div class="ch-hdr"><h3>Diff. Pressure Utama</h3><div class="ch-legend"><span class="ldot" style="background:#7e57c2"></span>Pa</div></div>
+      <div class="ch-wrap"><canvas id="uChP"></canvas></div>
+      <div class="dl-row"><button class="btn btn-dl" onclick="dlCSV('u','press')">⬇ CSV</button><button class="btn btn-sv" onclick="dlServer('chamber')">⬇ CSV Server</button><button class="btn btn-dl" onclick="dlPDF('u','press')">⬇ PDF</button></div>
+    </div>
+  </div>
+
+  <!-- COMPARISON -->
+  <div class="compare-wrap">
+    <div class="compare-head">
+      <h2>Perbandingan Data Average Chamber</h2>
+      <small>Selisih = Average Mixing - Average Utama</small>
+    </div>
+    <div class="compare-grid">
+      <div class="cmp-card">
+        <div class="cmp-title">SUHU (°C)</div>
+        <div class="cmp-row"><span>Utama</span><span id="cmpSMain">--</span></div>
+        <div class="cmp-row"><span>Mixing</span><span id="cmpSMix">--</span></div>
+        <div class="cmp-diff"><span>Selisih</span><b id="cmpSDiff">--</b></div>
+      </div>
+      <div class="cmp-card">
+        <div class="cmp-title">KELEMBAPAN (%)</div>
+        <div class="cmp-row"><span>Utama</span><span id="cmpHMain">--</span></div>
+        <div class="cmp-row"><span>Mixing</span><span id="cmpHMix">--</span></div>
+        <div class="cmp-diff"><span>Selisih</span><b id="cmpHDiff">--</b></div>
+      </div>
+      <div class="cmp-card">
+        <div class="cmp-title">CO₂ (ppm)</div>
+        <div class="cmp-row"><span>Utama</span><span id="cmpCMain">--</span></div>
+        <div class="cmp-row"><span>Mixing</span><span id="cmpCMix">--</span></div>
+        <div class="cmp-diff"><span>Selisih</span><b id="cmpCDiff">--</b></div>
+      </div>
+      <div class="cmp-card">
+        <div class="cmp-title">O₂ (%)</div>
+        <div class="cmp-row"><span>Utama</span><span id="cmpOMain">--</span></div>
+        <div class="cmp-row"><span>Mixing</span><span id="cmpOMix">--</span></div>
+        <div class="cmp-diff"><span>Selisih</span><b id="cmpODiff">--</b></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHAMBER MIXING -->
+  <div class="section-title">
+    <h2>Chamber Mixing</h2>
+    <span class="section-tag">ESP32 2</span>
+  </div>
+
+  <!-- GAUGES MIXING -->
+  <div class="gauges">
+    <div class="g-card">
+      <div class="g-title">SUHU MIXING</div>
+      <div class="g-wrap">
+        <svg viewBox="0 0 160 90"><path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+        <path class="arc-fg" id="mArcS" d="M18,82 A62,62 0 0,1 142,82" style="stroke:#ff7043;stroke-dasharray:194.8;stroke-dashoffset:194.8"/></svg>
+        <div class="g-center"><div class="g-val" id="mVS" style="color:#ff7043">--</div><div class="g-unit">°C</div></div>
+      </div>
+      <div class="g-range"><span>0</span><span>50</span></div>
+      
+    </div>
+    <div class="g-card">
+      <div class="g-title">KELEMBAPAN MIXING</div>
+      <div class="g-wrap">
+        <svg viewBox="0 0 160 90"><path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+        <path class="arc-fg" id="mArcH" d="M18,82 A62,62 0 0,1 142,82" style="stroke:#29b6f6;stroke-dasharray:194.8;stroke-dashoffset:194.8"/></svg>
+        <div class="g-center"><div class="g-val" id="mVH" style="color:#29b6f6">--</div><div class="g-unit">%</div></div>
+      </div>
+      <div class="g-range"><span>0</span><span>100</span></div>
+      
+    </div>
+    <div class="g-card">
+      <div class="g-title">CO₂ MIXING</div>
+      <div class="g-wrap">
+        <svg viewBox="0 0 160 90"><path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+        <path class="arc-fg" id="mArcC" d="M18,82 A62,62 0 0,1 142,82" style="stroke:#ab47bc;stroke-dasharray:194.8;stroke-dashoffset:194.8"/></svg>
+        <div class="g-center"><div class="g-val" id="mVC" style="color:#ab47bc;font-size:20px">--</div><div class="g-unit">ppm</div></div>
+      </div>
+      <div class="g-range"><span>0</span><span>100k</span></div>
+      
+    </div>
+    <div class="g-card">
+      <div class="g-title">O₂ MIXING</div>
+      <div class="g-wrap">
+        <svg viewBox="0 0 160 90"><path class="arc-bg" d="M18,82 A62,62 0 0,1 142,82"/>
+        <path class="arc-fg" id="mArcO" d="M18,82 A62,62 0 0,1 142,82" style="stroke:#26a69a;stroke-dasharray:194.8;stroke-dashoffset:194.8"/></svg>
+        <div class="g-center"><div class="g-val" id="mVO" style="color:#26a69a">--</div><div class="g-unit">%</div></div>
+      </div>
+      <div class="g-range"><span>0</span><span>25</span></div>
+      
+    </div>
+  </div>
+
+  <!-- STATS MIXING -->
+  <div class="stats-bar">
+    <div class="stat-card">
+      <div class="stat-label">SUHU MIXING (°C)</div>
+      <div class="stat-row">
+        <div class="stat-item"><span id="mSMin">--</span><small>Min</small></div>
+        <div class="stat-item"><span id="mSMax">--</span><small>Max</small></div>
+        <div class="stat-item"><span id="mSAvg">--</span><small>Rata</small></div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">KELEMBAPAN MIXING (%)</div>
+      <div class="stat-row">
+        <div class="stat-item"><span id="mHMin">--</span><small>Min</small></div>
+        <div class="stat-item"><span id="mHMax">--</span><small>Max</small></div>
+        <div class="stat-item"><span id="mHAvg">--</span><small>Rata</small></div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">CO₂ MIXING (ppm)</div>
+      <div class="stat-row">
+        <div class="stat-item"><span id="mCMin">--</span><small>Min</small></div>
+        <div class="stat-item"><span id="mCMax">--</span><small>Max</small></div>
+        <div class="stat-item"><span id="mCAvg">--</span><small>Rata</small></div>
+      </div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">O₂ MIXING (%)</div>
+      <div class="stat-row">
+        <div class="stat-item"><span id="mOMin">--</span><small>Min</small></div>
+        <div class="stat-item"><span id="mOMax">--</span><small>Max</small></div>
+        <div class="stat-item"><span id="mOAvg">--</span><small>Rata</small></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CHARTS MIXING -->
+  <div class="charts">
+    <div class="ch-card">
+      <div class="ch-hdr"><h3>Suhu Mixing</h3><div class="ch-legend"><span class="ldot" style="background:#ff7043"></span>°C</div></div>
+      <div class="ch-wrap"><canvas id="mChS"></canvas></div>
+      <div class="dl-row"><button class="btn btn-dl" onclick="dlCSV('m','suhu')">⬇ CSV</button><button class="btn btn-sv" onclick="dlServer('mixing')">⬇ CSV Server</button><button class="btn btn-dl" onclick="dlPDF('m','suhu')">⬇ PDF</button></div>
+    </div>
+    <div class="ch-card">
+      <div class="ch-hdr"><h3>Kelembapan Mixing</h3><div class="ch-legend"><span class="ldot" style="background:#29b6f6"></span>%</div></div>
+      <div class="ch-wrap"><canvas id="mChH"></canvas></div>
+      <div class="dl-row"><button class="btn btn-dl" onclick="dlCSV('m','hum')">⬇ CSV</button><button class="btn btn-sv" onclick="dlServer('mixing')">⬇ CSV Server</button><button class="btn btn-dl" onclick="dlPDF('m','hum')">⬇ PDF</button></div>
+    </div>
+    <div class="ch-card">
+      <div class="ch-hdr"><h3>CO₂ Mixing</h3><div class="ch-legend"><span class="ldot" style="background:#ab47bc"></span>% vol</div></div>
+      <div class="ch-wrap"><canvas id="mChC"></canvas></div>
+      <div class="dl-row"><button class="btn btn-dl" onclick="dlCSV('m','co2')">⬇ CSV</button><button class="btn btn-sv" onclick="dlServer('mixing')">⬇ CSV Server</button><button class="btn btn-dl" onclick="dlPDF('m','co2')">⬇ PDF</button></div>
+    </div>
+    <div class="ch-card">
+      <div class="ch-hdr"><h3>O₂ Mixing</h3><div class="ch-legend"><span class="ldot" style="background:#26a69a"></span>%</div></div>
+      <div class="ch-wrap"><canvas id="mChO"></canvas></div>
+      <div class="dl-row"><button class="btn btn-dl" onclick="dlCSV('m','o2')">⬇ CSV</button><button class="btn btn-sv" onclick="dlServer('mixing')">⬇ CSV Server</button><button class="btn btn-dl" onclick="dlPDF('m','o2')">⬇ PDF</button></div>
+    </div>
+  </div>
+
+</main>
+<footer>Monitoring CAS &nbsp;|&nbsp; MQTT Dashboard &nbsp;|&nbsp; http://202.155.90.225</footer>
+
+<!-- STORAGE INFO BAR -->
+<div id="storageBar" style="
+  position:fixed;bottom:0;left:0;right:0;
+  background:#1a2332;color:#fff;
+  padding:7px 18px;
+  display:none;
+  align-items:center;justify-content:space-between;
+  font-size:11px;font-family:'Inter',sans-serif;
+  z-index:200;box-shadow:0 -2px 8px rgba(0,0,0,.15);
+">
+  <div style="display:flex;align-items:center;gap:8px;">
+    <span>💾</span>
+    <span id="storageInfo"></span>
+  </div>
+  <span id="lastSaveLabel" style="color:#94a3b8;font-size:10px;"></span>
+</div>
+
+<script>
+// ── STATE ──
+const ARC=194.8, MAX=60;
+let mqttClient=null;
+
+const state={
+  u:{name:'Chamber Utama',file:'utama',buf:{s:null,h:null,c:null,o:null,p:null},history:{s:[],h:[],c:[],cppm:[],o:[],p:[],t:[]}},
+  m:{name:'Chamber Mixing',file:'mixing',buf:{s:null,h:null,c:null,o:null},history:{s:[],h:[],c:[],cppm:[],o:[],t:[]}}
+};
+
+// ── CHARTS ──
+Chart.defaults.color='#bbb';Chart.defaults.borderColor='#f0f2f5';
+function mkChart(id,color,label,yMin,yMax,unit){
+  return new Chart(document.getElementById(id),{
+    type:'line',
+    data:{labels:[],datasets:[{label:label,data:[],borderColor:color,backgroundColor:color+'18',borderWidth:2,tension:.4,pointRadius:0,fill:true}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:{duration:300},
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{maxRotation:0,maxTicksLimit:6,font:{size:9}},grid:{display:false}},
+        y:{min:yMin,max:yMax,ticks:{font:{size:9},callback:v=>v+unit},grid:{color:'#f5f7fa'}}
+      }}
+  });
+}
+const charts={
+  u:{
+    s:mkChart('uChS','#ff7043','Suhu Utama',0,50,'°C'),
+    h:mkChart('uChH','#29b6f6','Kelembapan Utama',0,100,'%'),
+    c:mkChart('uChC','#ab47bc','CO₂ Utama',0,10,'%'),
+    o:mkChart('uChO','#26a69a','O₂ Utama',0,25,'%'),
+    p:mkChart('uChP','#7e57c2','Diff. Pressure Utama',-250,250,'Pa')
+  },
+  m:{
+    s:mkChart('mChS','#ff7043','Suhu Mixing',0,50,'°C'),
+    h:mkChart('mChH','#29b6f6','Kelembapan Mixing',0,100,'%'),
+    c:mkChart('mChC','#ab47bc','CO₂ Mixing',0,10,'%'),
+    o:mkChart('mChO','#26a69a','O₂ Mixing',0,25,'%')
+  }
+};
+
+// ── GAUGE ──
+function setArc(id,val,min,max){
+  const el=document.getElementById(id);
+  if(!el)return;
+  const r=Math.min(Math.max((val-min)/(max-min),0),1);
+  el.style.strokeDashoffset=ARC*(1-r);
+}
+// setPill dihapus — tidak digunakan untuk sistem CAS
+function prefixID(ch,metric,suffix){
+  return ch+suffix+metric.toUpperCase();
+}
+
+// ── STATS ──
+function avg(arr){return arr.length?arr.reduce((a,b)=>a+b,0)/arr.length:null;}
+function fmt(v,dec){return v===null||isNaN(v)?'--':Number(v).toFixed(dec);}
+function setText(id,value){
+  const el=document.getElementById(id);
+  if(el)el.textContent=value;
+}
+function updateStats(ch){
+  const history=state[ch].history;
+  const calc=(arr,pfx,dec)=>{
+    if(!arr.length)return;
+    const mn=Math.min(...arr),mx=Math.max(...arr),av=avg(arr);
+    setText(ch+pfx+'Min',mn.toFixed(dec));
+    setText(ch+pfx+'Max',mx.toFixed(dec));
+    setText(ch+pfx+'Avg',av.toFixed(dec));
+  };
+  calc(history.s,'S',1);
+  calc(history.h,'H',1);
+  calc(history.cppm,'C',0); // CO2 stats dalam ppm
+  calc(history.o,'O',1);
+  if(history.p && history.p.length){
+    const mn=Math.min(...history.p),mx=Math.max(...history.p),av=avg(history.p);
+    setText(ch+'PMin',(mn>=0?'+':'')+mn.toFixed(1));
+    setText(ch+'PMax',(mx>=0?'+':'')+mx.toFixed(1));
+    setText(ch+'PAvg',(av>=0?'+':'')+av.toFixed(1));
+  }
+  updateComparison();
+}
+
+// ── COMPARISON ──
+function updateComparison(){
+  const pairs=[
+    {k:'S',arr:'s',dec:1,unit:'°C'},
+    {k:'H',arr:'h',dec:1,unit:'%'},
+    {k:'C',arr:'cppm',dec:0,unit:'ppm'},
+    {k:'O',arr:'o',dec:1,unit:'%'}
+  ];
+  pairs.forEach(p=>{
+    const au=avg(state.u.history[p.arr]);
+    const am=avg(state.m.history[p.arr]);
+    setText('cmp'+p.k+'Main',fmt(au,p.dec));
+    setText('cmp'+p.k+'Mix',fmt(am,p.dec));
+    if(au===null||am===null){
+      setText('cmp'+p.k+'Diff','--');
+    }else{
+      const d=am-au;
+      setText('cmp'+p.k+'Diff',(d>=0?'+':'')+d.toFixed(p.dec)+' '+p.unit);
+    }
+  });
+}
+
+// ── ALERT ──
+// checkAlert dihapus — tidak digunakan untuk sistem CAS
+function checkAlert(){}
+function latestValues(ch){
+  const h=state[ch].history;
+  if(!h.t.length)return null;
+  const i=h.t.length-1;
+  return {s:h.s[i],h:h.h[i],ppm:h.cppm[i],o:h.o[i]};
+}
+
+// ── PUSH CHART ──
+function pushChart(chart,val,lbl){
+  chart.data.labels.push(lbl);
+  chart.data.datasets[0].data.push(val);
+  if(chart.data.labels.length>MAX){chart.data.labels.shift();chart.data.datasets[0].data.shift();}
+  chart.update('none');
+}
+
+// ── TOPIC MAPPING ──
+function resolveTopic(topic){
+  const t=topic.toLowerCase();
+
+  // Chamber: topic lama tanpa kata mixing tetap masuk ke Chamber Utama.
+  let ch='u';
+  if(t.includes('/mixing/') || t.includes('mixing')) ch='m';
+  if(t.includes('/utama/') || t.includes('/main/')) ch='u';
+
+  // Sensor/metric
+  let metric=null;
+  if(t.includes('suhu') || t.includes('temperature') || t.endsWith('/temp')) metric='s';
+  else if(t.includes('kelembapan') || t.includes('humidity') || t.includes('/hum') || t.includes('/rh')) metric='h';
+  else if(t.includes('co2') || t.includes('co₂')) metric='c';
+  else if(t.includes('o2') || t.includes('o₂')) metric='o';
+  else if(t.includes('pressure') || t.includes('tekanan') || t.includes('/press')) metric='p';
+
+  if(!metric)return null;
+  return {ch,metric};
+}
+
+// ── ON MESSAGE ──
+function onMsg(topic,val){
+  const v=parseFloat(val);
+  if(isNaN(v))return;
+
+  const mapped=resolveTopic(topic);
+  if(!mapped){
+    console.warn('[MQTT] Topic tidak dikenali:',topic);
+    return;
+  }
+
+  const {ch,metric}=mapped;
+
+  // Pressure diproses sendiri — hanya ada di Chamber Utama, dan tidak
+  // ikut menahan trigger empat metrik utama (suhu/kelembapan/CO2/O2).
+  if(metric==='p'){
+    processPressure(ch,v);
+    return;
+  }
+
+  state[ch].buf[metric]=v;
+
+  const b=state[ch].buf;
+  if(b.s===null||b.h===null||b.c===null||b.o===null)return;
+  processChamber(ch);
+}
+
+function processPressure(ch,p){
+  const t=new Date().toLocaleTimeString('id-ID',{hour12:false});
+  setText(ch+'VP',(p>=0?'+':'')+p.toFixed(1));
+  setArc(ch+'ArcP',p,-250,250);
+
+  pushChart(charts[ch].p,p,t);
+
+  const history=state[ch].history;
+  if(history.p){
+    history.p.push(p);
+    if(history.p.length>MAX) history.p.shift();
+  }
+  updateStats(ch);
+}
+
+function processChamber(ch){
+  const buf=state[ch].buf;
+  const s=buf.s,h=buf.h,c=buf.c,o=buf.o;
+  const t=new Date().toLocaleTimeString('id-ID',{hour12:false});
+
+  // ESP32 kirim CO2 ppm langsung — tidak perlu konversi untuk gauge/statistik.
+  const ppm=Math.round(c);
+  const cpct=parseFloat((c/10000).toFixed(4)); // % vol hanya untuk grafik
+
+  // gauges
+  setText(ch+'VS',s.toFixed(1));
+  setText(ch+'VH',h.toFixed(1));
+  setText(ch+'VC',ppm);
+  setText(ch+'VO',o.toFixed(1));
+
+  setArc(ch+'ArcS',s,0,50);
+  setArc(ch+'ArcH',h,0,100);
+  setArc(ch+'ArcC',ppm,0,100000);
+  setArc(ch+'ArcO',o,0,25);
+
+
+  // charts — CO2 dalam % vol
+  pushChart(charts[ch].s,s,t);
+  pushChart(charts[ch].h,h,t);
+  pushChart(charts[ch].c,cpct,t);
+  pushChart(charts[ch].o,o,t);
+
+  // history
+  const history=state[ch].history;
+  history.s.push(s);
+  history.h.push(h);
+  history.cppm.push(ppm); // ppm untuk stats, csv, dan perbandingan
+  history.c.push(cpct);   // % vol untuk grafik
+  history.o.push(o);
+  history.t.push(t);
+
+  if(history.t.length>MAX){
+    ['s','h','c','cppm','o','t'].forEach(k=>history[k].shift());
+  }
+
+  updateStats(ch);
+  checkAlert();
+  state[ch].buf={s:null,h:null,c:null,o:null};
+}
+
+// ── DOWNLOAD CSV ──
+// ── DOWNLOAD CSV DARI SERVER VPS (DATALOGGER) ──
+// File CSV tersimpan di /var/www/html/data/ oleh datalogger.py
+// Format file: chamber_YYYY-MM.csv / mixing_YYYY-MM.csv
+function dlCSV(ch,type){
+  const history=state[ch].history;
+  if(!history.t||!history.t.length){alert('Belum ada data.');return;}
+  const label=state[ch].name;
+  let csv='';
+  if(type==='co2'){
+    csv='Chamber,Waktu,CO2 (ppm),CO2 (% vol)\n';
+    history.t.forEach((t,i)=>csv+=label+','+t+','+history.cppm[i]+','+history.c[i]+'\n');
+  } else if(type==='press'){
+    csv='Chamber,Waktu,Diff. Pressure (Pa)\n';
+    const arr=history.p||[];
+    history.t.forEach((t,i)=>csv+=label+','+t+','+(arr[i]!==undefined?arr[i]:'')+'\n');
+  } else {
+    const map={
+      suhu:{d:history.s,u:'°C'},
+      hum:{d:history.h,u:'%RH'},
+      o2:{d:history.o,u:'%'}
+    };
+    const m=map[type];
+    csv='Chamber,Waktu,Nilai ('+m.u+')\n';
+    history.t.forEach((t,i)=>csv+=label+','+t+','+m.d[i]+'\n');
+  }
+  const fname=state[ch].file+'_'+type+'_'+new Date().toISOString().slice(0,10)+'.csv';
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent(csv);
+  a.download=fname;
+  a.click();
+}
+
+// ── DOWNLOAD CSV SERVER (dari VPS datalogger) ──
+// File tersimpan di /var/www/html/data/ oleh datalogger.py
+// Format: chamber_YYYY-MM.csv / mixing_YYYY-MM.csv
+function dlServer(unit) {
+  const bulan    = new Date().toISOString().slice(0, 7); // YYYY-MM
+  const filename = unit + '_' + bulan + '.csv';
+  const url      = '/data/' + filename;
+  const a        = document.createElement('a');
+  a.href         = url;
+  a.download     = filename;
+  a.click();
+}
+
+// ── DOWNLOAD PDF ──
+// Tombol ini membuka halaman print berisi gambar grafik + tabel data.
+// Pilih "Save as PDF" pada dialog print browser.
+function dlPDF(ch,type){
+  const history=state[ch].history;
+  const chamberName=state[ch].name;
+  const map={
+    suhu:{d:history.s,u:'°C',label:'Suhu',chart:charts[ch].s},
+    hum:{d:history.h,u:'%',label:'Kelembapan',chart:charts[ch].h},
+    co2:{d:history.c,u:'% vol',label:'CO₂',chart:charts[ch].c},
+    o2:{d:history.o,u:'%',label:'O₂',chart:charts[ch].o},
+    press:{d:history.p||[],u:'Pa',label:'Diff. Pressure',chart:charts[ch].p}
+  };
+  const m=map[type];
+  let rows='';
+  if(type==='co2'){
+    history.t.forEach((t,i)=>{rows+=`<tr><td>${t}</td><td>${history.cppm[i]} ppm</td><td>${history.c[i]} % vol</td></tr>`;});
+  }else{
+    history.t.forEach((t,i)=>{rows+=`<tr><td>${t}</td><td>${m.d[i]} ${m.u}</td></tr>`;});
+  }
+
+  const chartImg=m.chart.toBase64Image();
+  const extraHead=type==='co2'?'<th>CO₂ (ppm)</th><th>CO₂ (% vol)</th>':'<th>Nilai</th>';
+
+  const html=`<html><head><title>CAS ${chamberName} ${m.label}</title>
+  <style>body{font-family:Arial,sans-serif;padding:20px;color:#222}h2{color:#333;margin-bottom:4px}
+  p{color:#666;font-size:12px}.chart{max-width:100%;border:1px solid #eee;border-radius:10px;margin:14px 0}
+  table{width:100%;border-collapse:collapse}th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:12px}
+  th{background:#f5f5f5;font-weight:600}tr:nth-child(even){background:#fafafa}</style></head>
+  <body><h2>Monitoring CAS — ${chamberName} — ${m.label}</h2>
+  <p>Diekspor: ${new Date().toLocaleString('id-ID')}</p>
+  <img class="chart" src="${chartImg}"/>
+  <table><thead><tr><th>Waktu</th>${extraHead}</tr></thead><tbody>${rows}</tbody></table>
+  <script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script>
+  </body></html>`;
+
+  const w=window.open('','_blank');
+  w.document.write(html);
+  w.document.close();
+}
+
+// ── STATUS UI ──
+function setStatus(st){
+  document.getElementById('sdot').className='sdot '+st;
+  document.getElementById('connLbl').textContent=st==='online'?'Online':st==='connecting'?'Menghubungkan...':'Offline';
+}
+
+// ── MQTT ──
+function connectMQTT(){
+  const host=document.getElementById('cfgHost').value.trim();
+  const port=parseInt(document.getElementById('cfgPort').value)||8884;
+  const path=document.getElementById('cfgPath').value.trim()||'/mqtt';
+  const user=document.getElementById('cfgUser').value.trim();
+  const pass=document.getElementById('cfgPass').value;
+  if(mqttClient){try{mqttClient.end(true);}catch(e){}mqttClient=null;}
+
+  const url='wss://'+host+':'+port+path;
+  console.log('[MQTT] Connecting:',url);
+
+  const opts={
+    clientId:'cas_'+Math.random().toString(16).substr(2,8),
+    clean:true,
+    reconnectPeriod:5000,
+    connectTimeout:15000,
+    keepalive:60
+  };
+  if(user)opts.username=user;
+  if(pass)opts.password=pass;
+
+  setStatus('connecting');
+  try{ mqttClient=mqtt.connect(url,opts); }
+  catch(e){ console.error('[MQTT]',e); setStatus('offline'); return; }
+
+  mqttClient.on('connect',()=>{
+    console.log('[MQTT] Connected!');
+    setStatus('online');
+    document.getElementById('cfgModal').classList.remove('show');
+    document.getElementById('btnDisc').style.display='';
+
+    // Topic lama tetap dipertahankan untuk ESP32 yang sudah berjalan.
+    // Topic tambahan disediakan untuk ESP32 Mixing dan format topic baru.
+    [
+      'Suhu CAS','Kelembapan CAS','CO2 CAS','O2 CAS','Pressure CAS',
+      'Suhu Mixing CAS','Kelembapan Mixing CAS','CO2 Mixing CAS','O2 Mixing CAS',
+      'cas/#'
+    ].forEach(t=>{
+      mqttClient.subscribe(t,{qos:0});
+      console.log('[MQTT] Sub:',t);
+    });
+  });
+  mqttClient.on('message',(topic,payload)=>{
+    console.log('[MQTT]',topic,payload.toString());
+    onMsg(topic,payload.toString());
+  });
+  mqttClient.on('error',(e)=>{ console.error('[MQTT] Err:',e); setStatus('offline'); });
+  mqttClient.on('close',()=>{ setStatus('offline'); document.getElementById('btnDisc').style.display='none'; });
+  mqttClient.on('reconnect',()=>setStatus('connecting'));
+}
+function disconnectMQTT(){
+  if(mqttClient){mqttClient.end(true);mqttClient=null;}
+  setStatus('offline');document.getElementById('btnDisc').style.display='none';
+}
+
+// ══════════════════════════════════════════════════════════
+// PENYIMPANAN DATA — localStorage, simpan tiap 5 menit
+// ══════════════════════════════════════════════════════════
+const STORAGE_KEY = 'cas_history_v1';
+const SAVE_INTERVAL = 5 * 60 * 1000;  // 5 menit dalam milidetik
+let lastSaveTime = null;
+
+// Simpan history ke localStorage
+function saveHistory() {
+  try {
+    const payload = {
+      savedAt: new Date().toISOString(),
+      u: {
+        s:    state.u.history.s,
+        h:    state.u.history.h,
+        c:    state.u.history.c,
+        cppm: state.u.history.cppm,
+        o:    state.u.history.o,
+        p:    state.u.history.p || [],
+        t:    state.u.history.t,
+      },
+      m: {
+        s:    state.m.history.s,
+        h:    state.m.history.h,
+        c:    state.m.history.c,
+        cppm: state.m.history.cppm,
+        o:    state.m.history.o,
+        t:    state.m.history.t,
+      }
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    lastSaveTime = new Date();
+    updateStorageBar();
+    console.log('[Storage] Tersimpan:', lastSaveTime.toLocaleTimeString('id-ID'));
+  } catch(e) {
+    console.warn('[Storage] Gagal simpan:', e);
+  }
+}
+
+// Muat history dari localStorage dan tampilkan ke grafik
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      document.getElementById('storageBar').style.display = 'none';
+      return;
+    }
+
+    const payload = JSON.parse(raw);
+    const savedAt = new Date(payload.savedAt);
+
+    // Restore Chamber Utama
+    const u = payload.u;
+    if (u && u.t && u.t.length) {
+      state.u.history.s    = u.s    || [];
+      state.u.history.h    = u.h    || [];
+      state.u.history.c    = u.c    || [];
+      state.u.history.cppm = u.cppm || [];
+      state.u.history.o    = u.o    || [];
+      state.u.history.p    = u.p    || [];
+      state.u.history.t    = u.t    || [];
+      // Isi ulang grafik
+      u.t.forEach((t, i) => {
+        pushChart(charts.u.s, u.s[i],    t);
+        pushChart(charts.u.h, u.h[i],    t);
+        pushChart(charts.u.c, u.c[i],    t);
+        pushChart(charts.u.o, u.o[i],    t);
+        if (u.p && u.p[i] !== undefined) pushChart(charts.u.p, u.p[i], t);
+      });
+      updateStats('u');
+    }
+
+    // Restore Mixing
+    const m = payload.m;
+    if (m && m.t && m.t.length) {
+      state.m.history.s    = m.s    || [];
+      state.m.history.h    = m.h    || [];
+      state.m.history.c    = m.c    || [];
+      state.m.history.cppm = m.cppm || [];
+      state.m.history.o    = m.o    || [];
+      state.m.history.t    = m.t    || [];
+      m.t.forEach((t, i) => {
+        pushChart(charts.m.s, m.s[i], t);
+        pushChart(charts.m.h, m.h[i], t);
+        pushChart(charts.m.c, m.c[i], t);
+        pushChart(charts.m.o, m.o[i], t);
+      });
+      updateStats('m');
+    }
+
+    const totalPts = (u.t ? u.t.length : 0) + (m.t ? m.t.length : 0);
+    const infoText = 'Data dipulihkan dari ' + savedAt.toLocaleString('id-ID') +
+      ' · ' + totalPts + ' titik data';
+    document.getElementById('storageInfo').textContent = infoText;
+    const modalEl = document.getElementById('modalStorageInfo');
+    if (modalEl) modalEl.textContent = infoText;
+    lastSaveTime = savedAt;
+    updateStorageBar();
+    console.log('[Storage] Dipulihkan:', totalPts, 'titik data');
+  } catch(e) {
+    console.warn('[Storage] Gagal muat:', e);
+    document.getElementById('storageInfo').textContent = 'Gagal memuat data tersimpan.';
+  }
+}
+
+// Hapus semua history
+function clearHistory() {
+  if (!confirm('Hapus semua data history yang tersimpan?\nGrafik akan dikosongkan.')) return;
+
+  // Kosongkan state
+  ['u','m'].forEach(ch => {
+    state[ch].history = {s:[],h:[],c:[],cppm:[],o:[],t:[]};
+    if (ch === 'u') state.u.history.p = [];
+    // Kosongkan grafik
+    Object.values(charts[ch]).forEach(chart => {
+      if (!chart) return;
+      chart.data.labels = [];
+      chart.data.datasets[0].data = [];
+      chart.update('none');
+    });
+    // Reset stats
+    ['S','H','C','O'].forEach(p => {
+      ['Min','Max','Avg'].forEach(s => {
+        const el = document.getElementById(ch.toUpperCase()+p+s) ||
+                   document.getElementById(ch+p+s);
+        if (el) el.textContent = '--';
+      });
+    });
+  });
+
+  localStorage.removeItem(STORAGE_KEY);
+  lastSaveTime = null;
+  document.getElementById('storageBar').style.display = 'none';
+  const modalEl = document.getElementById('modalStorageInfo');
+  if (modalEl) modalEl.textContent = 'Belum ada data tersimpan.';
+  console.log('[Storage] History dihapus');
+}
+
+function updateStorageBar() {
+  if (!lastSaveTime) return;
+  const uPts = state.u.history.t.length;
+  const mPts = state.m.history.t.length;
+  if (uPts === 0 && mPts === 0) return;
+  const lastSave = 'Terakhir simpan: ' + lastSaveTime.toLocaleTimeString('id-ID');
+  // Storage bar disembunyikan dari tampilan utama — tetap dihitung diam-diam
+  // dan hanya ditampilkan di dalam modal pengaturan.
+  document.getElementById('storageBar').style.display = 'none';
+  // Sync ke modal
+  const modalEl = document.getElementById('modalStorageInfo');
+  if (modalEl) modalEl.textContent =
+    'Chamber: ' + uPts + ' titik · Mixing: ' + mPts + ' titik · ' + lastSave;
+}
+
+// Hapus history dari dalam modal
+function clearHistoryFromModal() {
+  clearHistory();
+  // Update info modal
+  const modalEl = document.getElementById('modalStorageInfo');
+  if (modalEl) modalEl.textContent = 'Belum ada data tersimpan.';
+}
+
+// Auto-save setiap 5 menit
+setInterval(() => {
+  const totalPts = state.u.history.t.length + state.m.history.t.length;
+  if (totalPts > 0) saveHistory();
+}, SAVE_INTERVAL);
+
+window.addEventListener('load',()=>{
+  // Muat data tersimpan dulu
+  loadHistory();
+  // Baru connect MQTT
+  setTimeout(()=>{ if(typeof mqtt!=='undefined') connectMQTT(); else setTimeout(connectMQTT,2000); },1500);
+});
+</script>
+</body>
+</html>
